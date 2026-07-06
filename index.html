@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Timeless - Dashboard</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#141414">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Timeless">
+<link rel="apple-touch-icon" href="icon-192.png">
+
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="wrap">
+
+<header>
+  <div class="head-left">
+    <div class="eyebrow">Timeless Store · Panel del negocio</div>
+    <h1>Dashboard</h1>
+    <div class="sync-line" id="syncLine">Cargando datos…</div>
+  </div>
+  <div class="head-btns">
+    <button class="icon-btn" id="refreshBtn" title="Actualizar datos">↻</button>
+    <button class="icon-btn" id="gearBtn" title="Color">⚙️</button>
+  </div>
+</header>
+
+<div class="theme-drawer" id="themeDrawer">
+  <div class="title">Color</div>
+  <div class="swatches" id="swatches"></div>
+</div>
+
+<!-- Aviso de configuración (solo aparece si faltan URLs en config.js) -->
+<div class="setup-card" id="setupCard" hidden>
+  <div class="setup-title">⚠️ Falta conectar Google Sheets</div>
+  <div class="setup-body" id="setupBody"></div>
+</div>
+
+<main class="grid">
+
+  <!-- 1. UTILIDAD DEL MES -->
+  <section class="card hero" id="heroCard">
+    <div class="section-label" id="heroMonthLabel">Utilidad del mes</div>
+    <div class="hero-value mono" id="heroValue">—</div>
+    <div class="receipt" id="heroReceipt"></div>
+  </section>
+
+  <!-- 2. ROAS / PUBLICIDAD -->
+  <section class="card" id="roasCard">
+    <div class="section-label">Publicidad · ROAS</div>
+    <div class="roas-top">
+      <div class="roas-big">
+        <div class="mini-label">ROAS global</div>
+        <div class="roas-value mono" id="roasValue">—</div>
+      </div>
+      <div class="roas-kpis">
+        <div class="kpi"><span class="mini-label">Gasto ads</span><span class="mono" id="adsGasto">—</span></div>
+        <div class="kpi"><span class="mini-label">Ingreso estimado</span><span class="mono" id="adsIngreso">—</span></div>
+        <div class="kpi"><span class="mini-label">Ventas atribuidas</span><span class="mono" id="adsVentas">—</span></div>
+      </div>
+    </div>
+    <div class="table-title">Últimas semanas</div>
+    <div class="ad-rows" id="adRows"></div>
+  </section>
+
+  <!-- 3. PROYECCIÓN -->
+  <section class="card" id="projCard">
+    <div class="section-label">Proyección · techo del stock</div>
+    <div class="proj-line">
+      <span>Ganado este mes (ventas)</span>
+      <span class="mono accent" id="projGanado">—</span>
+    </div>
+    <div class="proj-bar"><div class="proj-bar-fill" id="projBarFill"></div></div>
+    <div class="proj-line muted-line">
+      <span>Si vendes TODO tu stock</span>
+      <span class="mono" id="projPosible">—</span>
+    </div>
+    <div class="proj-extra" id="projExtra"></div>
+  </section>
+
+  <!-- 4. COMPARATIVO MES A MES -->
+  <section class="card span2" id="monthsCard">
+    <div class="section-label">Utilidad neta mes a mes</div>
+    <div class="months-bars" id="monthsBars"></div>
+    <div class="months-list" id="monthsList"></div>
+  </section>
+
+  <!-- 5. TOP PRODUCTOS -->
+  <section class="card span2" id="topCard">
+    <div class="section-label">Top productos · ganancia potencial en stock</div>
+    <div class="top-rows" id="topRows"></div>
+  </section>
+
+</main>
+
+<footer>
+  <span class="mono">TIMELESS STORE</span> · datos desde Google Sheets · <span id="footTime"></span>
+</footer>
+
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    var swRefreshing = false;
+    var hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (swRefreshing || !hadController) return;
+      swRefreshing = true;
+      window.location.reload();
+    });
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('service-worker.js').then(function (reg) {
+        reg.update();
+        reg.addEventListener('updatefound', function () {
+          var nw = reg.installing;
+          if (!nw) return;
+          nw.addEventListener('statechange', function () {
+            if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+              nw.postMessage && nw.postMessage('skipWaiting');
+            }
+          });
+        });
+      }).catch(function (err) {
+        console.log('SW no registrado:', err);
+      });
+    });
+  }
+</script>
+</body>
+</html>
