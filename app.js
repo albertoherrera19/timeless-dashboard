@@ -323,7 +323,6 @@ function renderAll(data, missing){
   LAST = {ventas, gastos, pub, stocks, data};
   buildMonthOptions(ventas, gastos);
   renderHero(ventas, gastos, data, selectedMonthKey);
-  renderRoas(pub, data);
   renderProyeccion(ventas, stocks, data, selectedMonthKey);
   renderMeses(ventas, gastos, data);
   renderTop(stocks, data);
@@ -542,15 +541,16 @@ function renderProyeccion(ventas, stocks, data, mk){
   const techo = ganado + posible;
 
   document.getElementById('projGanado').textContent = 'S/ ' + fmt(ganado);
-  document.getElementById('projPosible').textContent = '+ S/ ' + fmt(posible);
+  // El número grande de "vender todo" ahora es el EFECTIVO (precio de venta × stock),
+  // que es de donde Alberto reinvierte — no la ganancia neta.
+  document.getElementById('projPosible').textContent = 'S/ ' + fmt(valorVenta);
   document.getElementById('projBarFill').style.width =
-    (techo > 0 ? Math.min(100, ganado/techo*100) : 0) + '%';
+    (valorVenta > 0 ? Math.min(100, invertido/valorVenta*100) : 0) + '%';
 
   extra.innerHTML =
-    '<div class="r-row"><span class="r-name">Techo del mes (ganado + stock)</span><span class="r-amt">S/ ' + fmt(techo) + '</span></div>' +
-    '<div class="r-row"><span class="r-name">Unidades en stock</span><span class="r-amt">' + fmt0(unidades) + '</span></div>' +
-    '<div class="r-row"><span class="r-name">Dinero invertido en ese stock</span><span class="r-amt">S/ ' + fmt(invertido) + '</span></div>' +
-    '<div class="r-row"><span class="r-name">Valor de venta del stock</span><span class="r-amt">S/ ' + fmt(valorVenta) + '</span></div>';
+    '<div class="r-row"><span class="r-name">↳ Recuperas lo invertido</span><span class="r-amt">S/ ' + fmt(invertido) + '</span></div>' +
+    '<div class="r-row"><span class="r-name">↳ De eso, tu ganancia neta</span><span class="r-amt plus">S/ ' + fmt(posible) + '</span></div>' +
+    '<div class="r-row"><span class="r-name">Unidades en stock</span><span class="r-amt">' + fmt0(unidades) + '</span></div>';
 
   renderPendientes(stocks, data);
 }

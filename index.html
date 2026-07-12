@@ -59,34 +59,25 @@
     <div class="receipt" id="heroReceipt"></div>
   </section>
 
-  <!-- 2. ROAS / PUBLICIDAD -->
-  <section class="card" id="roasCard">
-    <div class="section-label">Publicidad · ROAS</div>
-    <div class="roas-top">
-      <div class="roas-big">
-        <div class="mini-label">ROAS global</div>
-        <div class="roas-value mono" id="roasValue">—</div>
-      </div>
-      <div class="roas-kpis">
-        <div class="kpi"><span class="mini-label">Gasto ads</span><span class="mono" id="adsGasto">—</span></div>
-        <div class="kpi"><span class="mini-label">Ingreso estimado</span><span class="mono" id="adsIngreso">—</span></div>
-        <div class="kpi"><span class="mini-label">Ventas atribuidas</span><span class="mono" id="adsVentas">—</span></div>
-      </div>
+  <!-- 2. ADS · lo que Meta te cobró -->
+  <section class="card span2" id="adsDailyCard">
+    <div class="section-label">Ads · lo que Meta te cobró (<span id="adsDailyMonth">—</span>)</div>
+    <div class="ads-daily-wrap">
+      <table class="ads-daily" id="adsDailyTable"></table>
     </div>
-    <div class="table-title">Últimas semanas</div>
-    <div class="ad-rows" id="adRows"></div>
+    <div class="ads-daily-note">Muestra los <b>cargos</b> de Meta a tu tarjeta (categoría "Ads"), no el gasto real por campaña/día. Para ver campañas y gasto diario hace falta traer los datos desde Meta Ads.</div>
   </section>
 
   <!-- 3. PROYECCIÓN -->
   <section class="card" id="projCard">
-    <div class="section-label">Proyección · techo del stock</div>
+    <div class="section-label">Proyección · vender tu stock</div>
     <div class="proj-line">
-      <span>Ganado este mes (ventas)</span>
+      <span>Ganancia neta ganada este mes</span>
       <span class="mono accent" id="projGanado">—</span>
     </div>
     <div class="proj-bar"><div class="proj-bar-fill" id="projBarFill"></div></div>
     <div class="proj-line muted-line">
-      <span>Si vendes TODO tu stock</span>
+      <span>Si vendes TODO tu stock, en efectivo recibes</span>
       <span class="mono" id="projPosible">—</span>
     </div>
     <div class="proj-extra" id="projExtra"></div>
@@ -112,14 +103,6 @@
     <div class="top-rows" id="recentRows"></div>
   </section>
 
-  <!-- 7. RENTABILIDAD DE ADS (por día) -->
-  <section class="card span2" id="adsDailyCard">
-    <div class="section-label">Rentabilidad de ads · por día (<span id="adsDailyMonth">—</span>)</div>
-    <div class="ads-daily-wrap">
-      <table class="ads-daily" id="adsDailyTable"></table>
-    </div>
-    <div class="ads-daily-note">Gasto de ads = tus gastos de categoría "Ads" ese día. Ventas = todo lo vendido ese día.</div>
-  </section>
 
 </main>
 
