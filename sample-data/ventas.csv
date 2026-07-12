@@ -1,11 +1,11 @@
-Fecha,Producto,Cantidad,Precio unit.,Total,Costo unit.,Ganancia
-12/05/2026,Gorra NY negra,1,35.00,35.00,12.50,22.50
-20/05/2026,Cadena cubana plateada,2,25.00,50.00,8.00,34.00
-28/05/2026,Lentes retro,1,20.00,20.00,6.50,13.50
-03/06/2026,Gorra NY negra,2,35.00,70.00,12.50,45.00
-10/06/2026,Beanie gris,1,28.00,28.00,9.00,19.00
-18/06/2026,"Anillo doble, acero",3,15.00,45.00,4.20,32.40
-25/06/2026,Cadena cubana plateada,1,25.00,25.00,8.00,17.00
-01/07/2026,Gorra NY negra,1,35.00,35.00,12.50,22.50
-03/07/2026,Lentes retro,2,20.00,40.00,6.50,27.00
-05/07/2026,Beanie gris,1,28.00,28.00,9.00,19.00
+Fecha,Producto,Venta,Costo productos,Utilidad,Ganancia envío
+12/05/2026,Gorra NY negra,35.00,12.50,22.50,0
+20/05/2026,Cadena cubana plateada + lentes retro,70.00,14.50,55.50,0
+28/05/2026,Lentes retro,20.00,6.50,13.50,0
+03/06/2026,Gorra NY negra,70.00,25.00,45.00,0
+10/06/2026,Beanie gris,28.00,9.00,19.00,0
+18/06/2026,"Anillo doble, acero",45.00,12.60,32.40,0
+25/06/2026,Cadena cubana plateada,25.00,8.00,17.00,0
+01/07/2026,Gorra NY negra,35.00,12.50,22.50,0
+03/07/2026,Lentes retro + beanie gris,68.00,15.50,52.50,0
+05/07/2026,Beanie gris,28.00,9.00,19.00,0

@@ -199,15 +199,16 @@ function renderSetupCard(missing){
 // Quita la fila de títulos si la primera celda no es un dato
 function body(rows){ return rows && rows.length > 1 ? rows.slice(1) : []; }
 
+// Columnas de "VentasConsolidado": Fecha, Producto, Venta, Costo productos, Utilidad, Ganancia envío
 function getVentas(data){
   return body(data.ventas).map(r => ({
     date: parseDateSmart(r[0]),
     producto: (r[1]||'').trim(),
-    cantidad: parseMoney(r[2]),
-    total: parseMoney(r[4]),
-    costo: parseMoney(r[5]),
-    ganancia: parseMoney(r[6]),
-  })).filter(v => v.date && v.producto);
+    total: parseMoney(r[2]),
+    costo: parseMoney(r[3]),
+    utilidad: parseMoney(r[4]),
+    gananciaEnvio: parseMoney(r[5]),
+  })).filter(v => v.date && v.total > 0);
 }
 
 function getGastos(data){
@@ -268,9 +269,10 @@ function renderHero(ventas, gastos, data){
   const gMes = gastos.filter(g => monthKey(g.date) === k);
 
   const totalVentas = vMes.reduce((s,v)=>s+v.total, 0);
-  const totalCogs   = vMes.reduce((s,v)=>s+v.costo*v.cantidad, 0);
+  const totalCogs   = vMes.reduce((s,v)=>s+v.costo, 0);
+  const totalEnvio  = vMes.reduce((s,v)=>s+v.gananciaEnvio, 0);
   const totalGastos = gMes.reduce((s,g)=>s+g.monto, 0);
-  const utilidad = totalVentas - totalGastos - totalCogs;
+  const utilidad = totalVentas - totalCogs + totalEnvio - totalGastos;
 
   const monthName = cap(now.toLocaleDateString('es-PE', {month:'long', year:'numeric'}));
   document.getElementById('heroMonthLabel').textContent = 'Utilidad neta · ' + monthName;
@@ -281,8 +283,9 @@ function renderHero(ventas, gastos, data){
 
   const rows = [
     {name:'Ventas del mes (' + vMes.length + ')', amt:totalVentas, sign:'+'},
-    {name:'Gastos del mes (app)', amt:-totalGastos, sign:'-'},
     {name:'Costo de lo vendido', amt:-totalCogs, sign:'-'},
+    {name:'Ganancia por envío', amt:totalEnvio, sign:'+'},
+    {name:'Gastos del mes (app)', amt:-totalGastos, sign:'-'},
     {name:'UTILIDAD NETA', amt:utilidad, total:true},
   ];
   document.getElementById('heroReceipt').innerHTML =
@@ -339,7 +342,7 @@ function renderProyeccion(ventas, stocks, data){
     return;
   }
   const now = new Date(); const k = monthKey(now);
-  const ganado = ventas.filter(v=>monthKey(v.date)===k).reduce((s,v)=>s+v.ganancia,0);
+  const ganado = ventas.filter(v=>monthKey(v.date)===k).reduce((s,v)=>s+v.utilidad+v.gananciaEnvio,0);
   const conStock = stocks.filter(s=>s.stock>0);
   const posible = conStock.reduce((s,x)=>s+x.gananciaNeta,0);
   const invertido = conStock.reduce((s,x)=>s+x.invertido,0);
@@ -369,9 +372,9 @@ function renderMeses(ventas, gastos, data){
     return;
   }
 
-  const acc = {}; // key -> {v, g, c}
-  function slot(k){ return acc[k] || (acc[k] = {v:0, g:0, c:0}); }
-  ventas.forEach(x => { const s = slot(monthKey(x.date)); s.v += x.total; s.c += x.costo*x.cantidad; });
+  const acc = {}; // key -> {v, g, c, e}
+  function slot(k){ return acc[k] || (acc[k] = {v:0, g:0, c:0, e:0}); }
+  ventas.forEach(x => { const s = slot(monthKey(x.date)); s.v += x.total; s.c += x.costo; s.e += x.gananciaEnvio; });
   gastos.forEach(x => { slot(monthKey(x.date)).g += x.monto; });
 
   const keys = Object.keys(acc).sort().slice(-12);
@@ -388,8 +391,8 @@ function renderMeses(ventas, gastos, data){
       key: k,
       label: d.toLocaleDateString('es-PE', {month:'short'}).replace('.',''),
       full: cap(d.toLocaleDateString('es-PE', {month:'long', year:'numeric'})),
-      util: s.v - s.g - s.c,
-      v: s.v, g: s.g, c: s.c,
+      util: s.v - s.g - s.c + s.e,
+      v: s.v, g: s.g, c: s.c, e: s.e,
       current: k === curKey,
     };
   });

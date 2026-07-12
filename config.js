@@ -14,7 +14,7 @@
 
 const TIMELESS_CONFIG = {
 
-  // Pestaña "Ventas" (Fecha, Producto, Cantidad, Precio unit., Total, Costo unit., Ganancia)
+  // Pestaña "VentasConsolidado" (Fecha, Producto, Venta, Costo productos, Utilidad, Ganancia envío)
   CSV_VENTAS: '',
 
   // Pestaña "Gastos" (la que llena tu app de gastos vía Apps Script)
