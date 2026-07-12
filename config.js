@@ -14,7 +14,7 @@
 
 const TIMELESS_CONFIG = {
 
-  // Pestaña "VentasConsolidado" (Fecha, Producto, Venta, Costo productos, Utilidad, Ganancia envío)
+  // Pestaña "Ventas" — una fila por MES: Mes, Ingresos, Ganancia neta
   CSV_VENTAS: '',
 
   // Pestaña "Gastos" (la que llena tu app de gastos vía Apps Script)
@@ -23,7 +23,7 @@ const TIMELESS_CONFIG = {
   // Pestaña "Publicidad" (Semana, Plataforma, Gasto, Alcance, Ventas atrib., Ingreso est., ROAS)
   CSV_PUBLICIDAD: '',
 
-  // Pestaña "Stocks" (la automática con fórmulas)
+  // Pestaña "Stocks" (Producto, Precio, Vendidos, Stock, Gan. bruta pos., Gan. neta pos., Invertido)
   CSV_STOCKS: '',
 
   // ¿Quieres ver el dashboard con datos de ejemplo antes de conectar tu Sheets?

@@ -199,16 +199,15 @@ function renderSetupCard(missing){
 // Quita la fila de títulos si la primera celda no es un dato
 function body(rows){ return rows && rows.length > 1 ? rows.slice(1) : []; }
 
-// Columnas de "VentasConsolidado": Fecha, Producto, Venta, Costo productos, Utilidad, Ganancia envío
+// Pestaña "Ventas": una fila por MES → Mes (fecha 1er día), Ingresos, Ganancia neta
+// (Ganancia neta = ingresos − costo de productos, tal como Alberto ya la calcula
+//  en sus hojas mensuales; NO incluye los gastos, esos se restan aparte.)
 function getVentas(data){
   return body(data.ventas).map(r => ({
     date: parseDateSmart(r[0]),
-    producto: (r[1]||'').trim(),
-    total: parseMoney(r[2]),
-    costo: parseMoney(r[3]),
-    utilidad: parseMoney(r[4]),
-    gananciaEnvio: parseMoney(r[5]),
-  })).filter(v => v.date && v.total > 0);
+    ingresos: parseMoney(r[1]),
+    gananciaNeta: parseMoney(r[2]),
+  })).filter(v => v.date && (v.ingresos > 0 || v.gananciaNeta !== 0));
 }
 
 function getGastos(data){
@@ -231,16 +230,17 @@ function getPublicidad(data){
   })).filter(p => p.semana && p.gasto > 0);
 }
 
+// Pestaña "Stocks": Producto, Precio, Vendidos, Stock, Ganancia bruta pos., Ganancia neta pos., Invertido
 function getStocks(data){
   return body(data.stocks).map(r => ({
     producto: (r[0]||'').trim(),
     precio: parseMoney(r[1]),
     vendidos: parseMoney(r[2]),
     stock: parseMoney(r[3]),
-    gananciaBruta: parseMoney(r[6]),
-    gananciaNeta: parseMoney(r[7]),
-    invertido: parseMoney(r[8]),
-  })).filter(s => s.producto);
+    gananciaBruta: parseMoney(r[4]),
+    gananciaNeta: parseMoney(r[5]),
+    invertido: parseMoney(r[6]),
+  })).filter(s => s.producto && s.producto.toLowerCase() !== 'totales');
 }
 
 /* ---------- Render ---------- */
@@ -268,11 +268,10 @@ function renderHero(ventas, gastos, data){
   const vMes = ventas.filter(v => monthKey(v.date) === k);
   const gMes = gastos.filter(g => monthKey(g.date) === k);
 
-  const totalVentas = vMes.reduce((s,v)=>s+v.total, 0);
-  const totalCogs   = vMes.reduce((s,v)=>s+v.costo, 0);
-  const totalEnvio  = vMes.reduce((s,v)=>s+v.gananciaEnvio, 0);
-  const totalGastos = gMes.reduce((s,g)=>s+g.monto, 0);
-  const utilidad = totalVentas - totalCogs + totalEnvio - totalGastos;
+  const ingresos     = vMes.reduce((s,v)=>s+v.ingresos, 0);
+  const gananciaNeta = vMes.reduce((s,v)=>s+v.gananciaNeta, 0);
+  const totalGastos  = gMes.reduce((s,g)=>s+g.monto, 0);
+  const utilidad = gananciaNeta - totalGastos;
 
   const monthName = cap(now.toLocaleDateString('es-PE', {month:'long', year:'numeric'}));
   document.getElementById('heroMonthLabel').textContent = 'Utilidad neta · ' + monthName;
@@ -282,22 +281,21 @@ function renderHero(ventas, gastos, data){
   heroValue.className = 'hero-value mono ' + (utilidad < 0 ? 'neg' : 'pos');
 
   const rows = [
-    {name:'Ventas del mes (' + vMes.length + ')', amt:totalVentas, sign:'+'},
-    {name:'Costo de lo vendido', amt:-totalCogs, sign:'-'},
-    {name:'Ganancia por envío', amt:totalEnvio, sign:'+'},
+    {name:'Ingresos del mes', amt:ingresos, info:true},
+    {name:'Ganancia neta de ventas', amt:gananciaNeta, sign:'+'},
     {name:'Gastos del mes (app)', amt:-totalGastos, sign:'-'},
     {name:'UTILIDAD NETA', amt:utilidad, total:true},
   ];
   document.getElementById('heroReceipt').innerHTML =
     (!data.ventas && !data.gastos) ? needCfg('Ventas y Gastos') :
-    rows.map(r =>
-      '<div class="r-row' + (r.total ? ' total' : '') + '">' +
+    rows.map(r => {
+      const cls = r.total ? (r.amt<0?'minus':'') : (r.info ? '' : (r.sign==='+'?'plus':'minus'));
+      const prefix = r.amt<0 ? '− ' : (r.sign==='+'&&!r.total ? '+ ' : '');
+      return '<div class="r-row' + (r.total ? ' total' : '') + '">' +
         '<span class="r-name">' + r.name + '</span>' +
-        '<span class="r-amt ' + (r.total ? (r.amt<0?'minus':'') : (r.sign==='+'?'plus':'minus')) + '">' +
-          (r.amt<0?'− ':(r.sign==='+'&&!r.total?'+ ':'')) + 'S/ ' + fmt(Math.abs(r.amt)) +
-        '</span>' +
-      '</div>'
-    ).join('');
+        '<span class="r-amt ' + cls + '">' + prefix + 'S/ ' + fmt(Math.abs(r.amt)) + '</span>' +
+      '</div>';
+    }).join('');
 }
 
 // 2. ROAS
@@ -342,7 +340,7 @@ function renderProyeccion(ventas, stocks, data){
     return;
   }
   const now = new Date(); const k = monthKey(now);
-  const ganado = ventas.filter(v=>monthKey(v.date)===k).reduce((s,v)=>s+v.utilidad+v.gananciaEnvio,0);
+  const ganado = ventas.filter(v=>monthKey(v.date)===k).reduce((s,v)=>s+v.gananciaNeta,0);
   const conStock = stocks.filter(s=>s.stock>0);
   const posible = conStock.reduce((s,x)=>s+x.gananciaNeta,0);
   const invertido = conStock.reduce((s,x)=>s+x.invertido,0);
@@ -372,9 +370,9 @@ function renderMeses(ventas, gastos, data){
     return;
   }
 
-  const acc = {}; // key -> {v, g, c, e}
-  function slot(k){ return acc[k] || (acc[k] = {v:0, g:0, c:0, e:0}); }
-  ventas.forEach(x => { const s = slot(monthKey(x.date)); s.v += x.total; s.c += x.costo; s.e += x.gananciaEnvio; });
+  const acc = {}; // key -> {ing, gn, g} = ingresos, ganancia neta ventas, gastos
+  function slot(k){ return acc[k] || (acc[k] = {ing:0, gn:0, g:0}); }
+  ventas.forEach(x => { const s = slot(monthKey(x.date)); s.ing += x.ingresos; s.gn += x.gananciaNeta; });
   gastos.forEach(x => { slot(monthKey(x.date)).g += x.monto; });
 
   const keys = Object.keys(acc).sort().slice(-12);
@@ -391,8 +389,8 @@ function renderMeses(ventas, gastos, data){
       key: k,
       label: d.toLocaleDateString('es-PE', {month:'short'}).replace('.',''),
       full: cap(d.toLocaleDateString('es-PE', {month:'long', year:'numeric'})),
-      util: s.v - s.g - s.c + s.e,
-      v: s.v, g: s.g, c: s.c, e: s.e,
+      util: s.gn - s.g,
+      ing: s.ing, gn: s.gn, g: s.g,
       current: k === curKey,
     };
   });
@@ -409,7 +407,7 @@ function renderMeses(ventas, gastos, data){
   listBox.innerHTML = [...series].reverse().map(s =>
     '<div class="ml-row' + (s.current?' current':'') + '">' +
       '<span class="ml-name">' + s.full +
-        ' <span class="ml-detail">V ' + fmt0(s.v) + ' · G ' + fmt0(s.g) + ' · C ' + fmt0(s.c) + '</span></span>' +
+        ' <span class="ml-detail">Ing ' + fmt0(s.ing) + ' · GN ' + fmt0(s.gn) + ' · Gastos ' + fmt0(s.g) + '</span></span>' +
       '<span class="ml-amt' + (s.util<0?' neg':'') + '">S/ ' + fmt(s.util) + '</span>' +
     '</div>'
   ).join('');
