@@ -243,9 +243,13 @@ function sumInversion(data, k){
     (!k || monthKey(g.date) === k)).reduce((s,g)=>s+g.monto, 0);
 }
 
-// ¿Es un gasto de negocio? (Ads, Materiales...) según config.GASTOS_NEGOCIO.
+// ¿Es un gasto de negocio? Según config.GASTOS_NEGOCIO, o cualquier categoría
+// que empiece por "materiales" (así agarra "Materiales timeless", "Materiales tmls", etc.).
 const NEGOCIO_SET = (cfg.GASTOS_NEGOCIO || []).map(c => normName(c));
-function esNegocio(categoria){ return NEGOCIO_SET.indexOf(normName(categoria)) !== -1; }
+function esNegocio(categoria){
+  const n = normName(categoria);
+  return NEGOCIO_SET.indexOf(n) !== -1 || n.indexOf('materiales') === 0;
+}
 
 // Modo de la utilidad: 'negocio' (solo gastos de negocio) o 'todo' (también personales).
 let utilMode = 'negocio';

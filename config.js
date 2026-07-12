@@ -44,9 +44,9 @@ const TIMELESS_CONFIG = {
   EXCLUIR_CATEGORIAS: ['Inversión'],
 
   // Categorías que cuentan como GASTO DE NEGOCIO (se restan en el modo "Negocio"
-  // y también en "Todo"). El resto de categorías se consideran personales y solo
-  // se restan en el modo "Todo". Comparación sin acentos/mayúsculas.
-  // Nota: crea una categoría "Materiales timeless" en tu app para que tus
-  // materiales cuenten como negocio (hoy los anotas dentro de "Otros").
-  GASTOS_NEGOCIO: ['Ads', 'Materiales timeless', 'Materiales', 'Envios', 'Envíos'],
+  // y también en "Todo"). El resto se consideran personales (solo se restan en
+  // "Todo"). Comparación sin acentos/mayúsculas; además, cualquier categoría que
+  // empiece por "materiales" cuenta como negocio (ver esNegocio en app.js).
+  // Pasajes va como PERSONAL (los envíos los paga el cliente, no es costo tuyo).
+  GASTOS_NEGOCIO: ['Ads', 'Materiales timeless'],
 };
