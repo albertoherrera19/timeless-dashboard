@@ -112,6 +112,15 @@ function parseDateSmart(s){
 }
 
 function monthKey(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); }
+function monthLabel(mk){
+  const d = new Date(+mk.slice(0,4), +mk.slice(5)-1, 1);
+  return cap(d.toLocaleDateString('es-PE', {month:'long', year:'numeric'}));
+}
+
+// Mes actualmente seleccionado en el dashboard y último set de datos parseado
+// (para poder re-pintar Utilidad/Proyección al cambiar de mes sin volver a descargar).
+let selectedMonthKey = null;
+let LAST = null;
 
 /* ---------- Carga de datos ---------- */
 const cfg = (typeof TIMELESS_CONFIG !== 'undefined') ? TIMELESS_CONFIG : {};
@@ -250,12 +259,33 @@ function renderAll(data, missing){
   const gastos = getGastos(data);
   const pub = getPublicidad(data);
   const stocks = getStocks(data);
-  renderHero(ventas, gastos, data);
+  LAST = {ventas, gastos, pub, stocks, data};
+  buildMonthOptions(ventas, gastos);
+  renderHero(ventas, gastos, data, selectedMonthKey);
   renderRoas(pub, data);
-  renderProyeccion(ventas, stocks, data);
+  renderProyeccion(ventas, stocks, data, selectedMonthKey);
   renderMeses(ventas, gastos, data);
   renderTop(stocks, data);
   document.getElementById('footTime').textContent = new Date().getFullYear();
+}
+
+// Llena el selector de mes con los meses que existen en Ventas o Gastos.
+// Por defecto muestra el mes actual si hay datos; si no, el más reciente.
+function buildMonthOptions(ventas, gastos){
+  const set = {};
+  ventas.forEach(v => set[monthKey(v.date)] = true);
+  gastos.forEach(g => set[monthKey(g.date)] = true);
+  const keys = Object.keys(set).sort(); // ascendente
+  const sel = document.getElementById('monthSelect');
+  if(!sel) return;
+  if(keys.length === 0){ sel.innerHTML = ''; return; }
+  const curKey = monthKey(new Date());
+  if(!selectedMonthKey || keys.indexOf(selectedMonthKey) === -1){
+    selectedMonthKey = keys.indexOf(curKey) !== -1 ? curKey : keys[keys.length-1];
+  }
+  sel.innerHTML = keys.slice().reverse().map(k =>
+    '<option value="' + k + '"' + (k===selectedMonthKey?' selected':'') + '>' + monthLabel(k) + '</option>'
+  ).join('');
 }
 
 function needCfg(tabs){
@@ -263,9 +293,8 @@ function needCfg(tabs){
 }
 
 // 1. UTILIDAD DEL MES
-function renderHero(ventas, gastos, data){
-  const now = new Date();
-  const k = monthKey(now);
+function renderHero(ventas, gastos, data, mk){
+  const k = mk || monthKey(new Date());
   const vMes = ventas.filter(v => monthKey(v.date) === k);
   const gMes = gastos.filter(g => monthKey(g.date) === k);
 
@@ -274,8 +303,7 @@ function renderHero(ventas, gastos, data){
   const totalGastos  = gMes.reduce((s,g)=>s+g.monto, 0);
   const utilidad = gananciaNeta - totalGastos;
 
-  const monthName = cap(now.toLocaleDateString('es-PE', {month:'long', year:'numeric'}));
-  document.getElementById('heroMonthLabel').textContent = 'Utilidad neta · ' + monthName;
+  document.getElementById('heroMonthLabel').textContent = 'Utilidad neta · ' + monthLabel(k);
 
   const heroValue = document.getElementById('heroValue');
   heroValue.textContent = 'S/ ' + fmt(utilidad);
@@ -334,13 +362,13 @@ function renderRoas(pub, data){
 }
 
 // 3. PROYECCIÓN
-function renderProyeccion(ventas, stocks, data){
+function renderProyeccion(ventas, stocks, data, mk){
   const extra = document.getElementById('projExtra');
   if(!data.stocks){
     extra.innerHTML = needCfg('Stocks');
     return;
   }
-  const now = new Date(); const k = monthKey(now);
+  const k = mk || monthKey(new Date());
   const ganado = ventas.filter(v=>monthKey(v.date)===k).reduce((s,v)=>s+v.gananciaNeta,0);
   const conStock = stocks.filter(s=>s.stock>0);
   const posible = conStock.reduce((s,x)=>s+x.gananciaNeta,0);
@@ -441,6 +469,15 @@ function renderTop(stocks, data){
 }
 
 /* ---------- Arranque ---------- */
+// Cambiar de mes re-pinta Utilidad y Proyección con los datos ya cargados.
+document.getElementById('monthSelect').addEventListener('change', (e) => {
+  selectedMonthKey = e.target.value;
+  if(LAST){
+    renderHero(LAST.ventas, LAST.gastos, LAST.data, selectedMonthKey);
+    renderProyeccion(LAST.ventas, LAST.stocks, LAST.data, selectedMonthKey);
+  }
+});
+
 let savedTheme = 'negro';
 try{ savedTheme = localStorage.getItem(THEME_KEY) || 'negro'; }catch(e){}
 applyTheme(savedTheme);

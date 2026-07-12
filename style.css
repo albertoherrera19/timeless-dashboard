@@ -54,7 +54,21 @@ h1{
   color:var(--muted);
   font-family:"SFMono-Regular",Consolas,Menlo,monospace;
 }
-.head-btns{display:flex;gap:8px;flex-shrink:0;}
+.head-btns{display:flex;gap:8px;flex-shrink:0;align-items:center;}
+.month-select{
+  background:var(--chip);
+  border:1px solid var(--line);
+  color:var(--bone);
+  height:38px;
+  border-radius:10px;
+  padding:0 10px;
+  font-size:13px;
+  font-weight:700;
+  cursor:pointer;
+  max-width:180px;
+  text-transform:capitalize;
+}
+.month-select:focus{outline:none;border-color:var(--accent);}
 .icon-btn{
   background:var(--chip);
   border:1px solid var(--line);
@@ -123,6 +137,26 @@ h1{
   .grid{grid-template-columns:1fr 1fr;}
   .hero{grid-column:1 / -1;}
   .span2{grid-column:1 / -1;}
+}
+
+/* --- Vista optimizada para PC (pantallas anchas) --- */
+@media(min-width:1000px){
+  .wrap{max-width:1240px;}
+  /* Hero: número gigante a la izquierda, recibo a la derecha */
+  .hero{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    column-gap:36px;
+    align-items:center;
+  }
+  #heroMonthLabel{grid-column:1 / -1;}
+  #heroValue{grid-column:1;grid-row:2;font-size:64px;margin:0;}
+  #heroReceipt{grid-column:2;grid-row:2;}
+  /* Publicidad y Proyección lado a lado; mes-a-mes y top a lo ancho */
+  .hero-value{line-height:1;}
+}
+@media(min-width:1240px){
+  .wrap{max-width:1240px;}
 }
 .card{
   background:var(--card);
