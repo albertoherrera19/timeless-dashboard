@@ -15,16 +15,16 @@
 const TIMELESS_CONFIG = {
 
   // Pestaña "Ventas" — una fila por MES: Mes, Ingresos, Ganancia neta
-  CSV_VENTAS: '',
+  CSV_VENTAS: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBRgF8Fuo4jQD-iur4ziP656jtllYGtp6aSN2Uv0Cn3bGZAs1qgq9VInR9w-8dv_ESSvG37G5euD5T/pub?gid=1119449104&single=true&output=csv',
 
   // Pestaña "Gastos" (la que llena tu app de gastos vía Apps Script)
-  CSV_GASTOS: '',
+  CSV_GASTOS: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBRgF8Fuo4jQD-iur4ziP656jtllYGtp6aSN2Uv0Cn3bGZAs1qgq9VInR9w-8dv_ESSvG37G5euD5T/pub?gid=484743647&single=true&output=csv',
 
   // Pestaña "Publicidad" (Semana, Plataforma, Gasto, Alcance, Ventas atrib., Ingreso est., ROAS)
-  CSV_PUBLICIDAD: '',
+  CSV_PUBLICIDAD: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBRgF8Fuo4jQD-iur4ziP656jtllYGtp6aSN2Uv0Cn3bGZAs1qgq9VInR9w-8dv_ESSvG37G5euD5T/pub?gid=2102855848&single=true&output=csv',
 
   // Pestaña "Stocks" (Producto, Precio, Vendidos, Stock, Gan. bruta pos., Gan. neta pos., Invertido)
-  CSV_STOCKS: '',
+  CSV_STOCKS: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBRgF8Fuo4jQD-iur4ziP656jtllYGtp6aSN2Uv0Cn3bGZAs1qgq9VInR9w-8dv_ESSvG37G5euD5T/pub?gid=1602555219&single=true&output=csv',
 
   // ¿Quieres ver el dashboard con datos de ejemplo antes de conectar tu Sheets?
   // Pon 'sample-data/ventas.csv', 'sample-data/gastos.csv',

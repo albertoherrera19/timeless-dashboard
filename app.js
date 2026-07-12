@@ -211,11 +211,12 @@ function getVentas(data){
 }
 
 function getGastos(data){
+  // Columnas reales publicadas por la app de gastos: ID, Fecha, Categoría, Monto, Nota, Registrado en
   const excl = (cfg.EXCLUIR_CATEGORIAS || []).map(c => c.toLowerCase());
   return body(data.gastos).map(r => ({
-    date: parseDateSmart(r[0]),
-    monto: parseMoney(r[1]),
+    date: parseDateSmart(r[1]),
     categoria: (r[2]||'').trim(),
+    monto: parseMoney(r[3]),
   })).filter(g => g.date && g.monto > 0 && excl.indexOf(g.categoria.toLowerCase()) === -1);
 }
 
