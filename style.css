@@ -149,7 +149,7 @@ h1{
     column-gap:36px;
     align-items:center;
   }
-  #heroMonthLabel{grid-column:1 / -1;}
+  .hero-top{grid-column:1 / -1;grid-row:1;}
   #heroValue{grid-column:1;grid-row:2;font-size:64px;margin:0;}
   #heroReceipt{grid-column:2;grid-row:2;}
   /* Publicidad y Proyección lado a lado; mes-a-mes y top a lo ancho */
@@ -203,6 +203,18 @@ h1{
 .r-row .r-name{color:var(--muted);}
 .r-row .r-amt{font-family:"SFMono-Regular",Consolas,Menlo,monospace;font-weight:700;}
 .r-row.total .r-name{color:var(--bone);font-weight:700;}
+.r-row.faint{opacity:.6;}
+.r-row.faint .r-name{font-size:11px;}
+
+/* Interruptor Negocio / Todo */
+.hero-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+.util-toggle{display:inline-flex;background:var(--chip);border:1px solid var(--line);border-radius:9px;padding:2px;flex-shrink:0;}
+.util-toggle button{
+  background:transparent;border:none;color:var(--muted);
+  font-size:11px;font-weight:700;padding:5px 12px;border-radius:7px;cursor:pointer;
+  letter-spacing:.02em;
+}
+.util-toggle button.active{background:var(--accent);color:#fff;}
 .r-row .r-amt.plus{color:var(--ok);}
 .r-row .r-amt.minus{color:var(--bad);}
 

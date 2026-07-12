@@ -223,13 +223,33 @@ function getVentas(data){
 
 function getGastos(data){
   // Columnas reales publicadas por la app de gastos: ID, Fecha, Categoría, Monto, Nota, Registrado en
-  const excl = (cfg.EXCLUIR_CATEGORIAS || []).map(c => c.toLowerCase());
+  const excl = (cfg.EXCLUIR_CATEGORIAS || []).map(c => normName(c));
   return body(data.gastos).map(r => ({
     date: parseDateSmart(r[1]),
     categoria: (r[2]||'').trim(),
     monto: parseMoney(r[3]),
-  })).filter(g => g.date && g.monto > 0 && excl.indexOf(g.categoria.toLowerCase()) === -1);
+  })).filter(g => g.date && g.monto > 0 && excl.indexOf(normName(g.categoria)) === -1);
 }
+
+// Suma de "Inversión" (compra de mercadería) de un mes — solo informativo,
+// NO se resta de la utilidad (ya está en el costo de lo vendido).
+function sumInversion(data, k){
+  const inv = (cfg.EXCLUIR_CATEGORIAS || []).map(c => normName(c));
+  return body(data.gastos).map(r => ({
+    date: parseDateSmart(r[1]),
+    categoria: (r[2]||'').trim(),
+    monto: parseMoney(r[3]),
+  })).filter(g => g.date && g.monto > 0 && inv.indexOf(normName(g.categoria)) !== -1 &&
+    (!k || monthKey(g.date) === k)).reduce((s,g)=>s+g.monto, 0);
+}
+
+// ¿Es un gasto de negocio? (Ads, Materiales...) según config.GASTOS_NEGOCIO.
+const NEGOCIO_SET = (cfg.GASTOS_NEGOCIO || []).map(c => normName(c));
+function esNegocio(categoria){ return NEGOCIO_SET.indexOf(normName(categoria)) !== -1; }
+
+// Modo de la utilidad: 'negocio' (solo gastos de negocio) o 'todo' (también personales).
+let utilMode = 'negocio';
+try{ utilMode = localStorage.getItem('timeless_util_mode') || 'negocio'; }catch(e){}
 
 function getPublicidad(data){
   return body(data.publicidad).map(r => ({
@@ -422,10 +442,21 @@ function renderHero(ventas, gastos, data, mk){
 
   const ingresos     = vMes.reduce((s,v)=>s+v.ingresos, 0);
   const gananciaNeta = vMes.reduce((s,v)=>s+v.gananciaNeta, 0);
-  const totalGastos  = gMes.reduce((s,g)=>s+g.monto, 0);
-  const utilidad = gananciaNeta - totalGastos;
+  const gastosNegocio  = gMes.filter(g=>esNegocio(g.categoria)).reduce((s,g)=>s+g.monto, 0);
+  const gastosPersonal = gMes.filter(g=>!esNegocio(g.categoria)).reduce((s,g)=>s+g.monto, 0);
+  const inversion = sumInversion(data, k);
 
-  document.getElementById('heroMonthLabel').textContent = 'Utilidad neta · ' + monthLabel(k);
+  // Modo "negocio": solo gastos de negocio. Modo "todo": también los personales.
+  const utilidad = (utilMode === 'todo')
+    ? gananciaNeta - gastosNegocio - gastosPersonal
+    : gananciaNeta - gastosNegocio;
+
+  document.getElementById('heroMonthLabel').textContent =
+    (utilMode === 'todo' ? 'Lo que me queda · ' : 'Utilidad del negocio · ') + monthLabel(k);
+
+  // Marca el botón activo del interruptor
+  document.querySelectorAll('#utilToggle button').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-mode') === utilMode));
 
   const heroValue = document.getElementById('heroValue');
   heroValue.textContent = 'S/ ' + fmt(utilidad);
@@ -434,15 +465,22 @@ function renderHero(ventas, gastos, data, mk){
   const rows = [
     {name:'Ingresos del mes', amt:ingresos, info:true},
     {name:'Ganancia neta de ventas', amt:gananciaNeta, sign:'+'},
-    {name:'Gastos del mes (app)', amt:-totalGastos, sign:'-'},
-    {name:'UTILIDAD NETA', amt:utilidad, total:true},
+    {name:'Gastos de negocio (Ads, materiales)', amt:-gastosNegocio, sign:'-'},
   ];
+  if(utilMode === 'todo'){
+    rows.push({name:'Gastos personales', amt:-gastosPersonal, sign:'-'});
+  }
+  rows.push({name: (utilMode==='todo' ? 'LO QUE ME QUEDA' : 'UTILIDAD DEL NEGOCIO'), amt:utilidad, total:true});
+  if(inversion > 0){
+    rows.push({name:'↳ Reinvertido en mercadería (ya está en el costo)', amt:inversion, info:true, faint:true});
+  }
+
   document.getElementById('heroReceipt').innerHTML =
     (!data.ventas && !data.gastos) ? needCfg('Ventas y Gastos') :
     rows.map(r => {
       const cls = r.total ? (r.amt<0?'minus':'') : (r.info ? '' : (r.sign==='+'?'plus':'minus'));
       const prefix = r.amt<0 ? '− ' : (r.sign==='+'&&!r.total ? '+ ' : '');
-      return '<div class="r-row' + (r.total ? ' total' : '') + '">' +
+      return '<div class="r-row' + (r.total ? ' total' : '') + (r.faint ? ' faint' : '') + '">' +
         '<span class="r-name">' + r.name + '</span>' +
         '<span class="r-amt ' + cls + '">' + prefix + 'S/ ' + fmt(Math.abs(r.amt)) + '</span>' +
       '</div>';
@@ -557,10 +595,14 @@ function renderMeses(ventas, gastos, data){
     return;
   }
 
-  const acc = {}; // key -> {ing, gn, g} = ingresos, ganancia neta ventas, gastos
+  // Sigue el mismo modo del hero: 'negocio' resta solo gastos de negocio;
+  // 'todo' resta también los personales.
+  const acc = {}; // key -> {ing, gn, g} = ingresos, ganancia neta ventas, gastos aplicables
   function slot(k){ return acc[k] || (acc[k] = {ing:0, gn:0, g:0}); }
   ventas.forEach(x => { const s = slot(monthKey(x.date)); s.ing += x.ingresos; s.gn += x.gananciaNeta; });
-  gastos.forEach(x => { slot(monthKey(x.date)).g += x.monto; });
+  gastos.forEach(x => {
+    if(utilMode === 'todo' || esNegocio(x.categoria)) slot(monthKey(x.date)).g += x.monto;
+  });
 
   const keys = Object.keys(acc).sort().slice(-12);
   if(keys.length === 0){
@@ -634,6 +676,18 @@ document.getElementById('monthSelect').addEventListener('change', (e) => {
     renderHero(LAST.ventas, LAST.gastos, LAST.data, selectedMonthKey);
     renderProyeccion(LAST.ventas, LAST.stocks, LAST.data, selectedMonthKey);
     renderAdsDaily(LAST.data, selectedMonthKey);
+  }
+});
+
+// Interruptor Negocio / Todo: cambia cómo se restan los gastos en Utilidad y Mes a mes.
+document.getElementById('utilToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-mode]');
+  if(!btn) return;
+  utilMode = btn.getAttribute('data-mode');
+  try{ localStorage.setItem('timeless_util_mode', utilMode); }catch(err){}
+  if(LAST){
+    renderHero(LAST.ventas, LAST.gastos, LAST.data, selectedMonthKey);
+    renderMeses(LAST.ventas, LAST.gastos, LAST.data);
   }
 });
 

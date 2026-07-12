@@ -38,9 +38,15 @@ const TIMELESS_CONFIG = {
   // Pon 'sample-data/ventas.csv', 'sample-data/gastos.csv',
   // 'sample-data/publicidad.csv' y 'sample-data/stocks.csv' en los campos de arriba.
 
-  // Categorías de tu app de gastos que NO se restan en la "utilidad del mes".
-  // 'Inversión' va excluida por defecto: la compra de mercadería ya se descuenta
-  // como "costo de productos vendidos" al momento de vender — si también se
-  // restara como gasto, se contaría DOS veces. Ajusta la lista si quieres.
+  // Categorías que NUNCA se restan de la utilidad. 'Inversión' = compra de
+  // mercadería: ya está descontada como "costo de productos" al vender, restarla
+  // otra vez sería contar doble. Se muestra aparte como info (reinvertido).
   EXCLUIR_CATEGORIAS: ['Inversión'],
+
+  // Categorías que cuentan como GASTO DE NEGOCIO (se restan en el modo "Negocio"
+  // y también en "Todo"). El resto de categorías se consideran personales y solo
+  // se restan en el modo "Todo". Comparación sin acentos/mayúsculas.
+  // Nota: crea una categoría "Materiales timeless" en tu app para que tus
+  // materiales cuenten como negocio (hoy los anotas dentro de "Otros").
+  GASTOS_NEGOCIO: ['Ads', 'Materiales timeless', 'Materiales', 'Envios', 'Envíos'],
 };
