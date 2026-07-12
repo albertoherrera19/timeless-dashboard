@@ -131,6 +131,7 @@ const SOURCES = [
   {key:'stocks',     cfgKey:'CSV_STOCKS',     tab:'Stocks'},
   {key:'pendientes', cfgKey:'CSV_PENDIENTES', tab:'Pendientes', optional:true},
   {key:'ventasDetalle', cfgKey:'CSV_VENTASDETALLE', tab:'VentasDetalle', optional:true},
+  {key:'campanas', cfgKey:'CSV_CAMPANAS', tab:'Campañas', optional:true},
 ];
 
 function fetchCSV(url){
@@ -292,6 +293,15 @@ function getVentasDetalle(data){
   })).filter(v => v.date && v.venta > 0);
 }
 
+// Pestaña "Campañas": Fecha, Campaña, Gasto (gasto real por día y campaña desde Meta Ads)
+function getCampanas(data){
+  return body(data.campanas).map(r => ({
+    date: parseDateSmart(r[0]),
+    campana: (r[1]||'').trim(),
+    gasto: parseMoney(r[2]),
+  })).filter(c => c.date && c.gasto > 0);
+}
+
 // Pestaña "Pendientes": Producto, Cantidad, Invertido (pedidos comprados que aún no llegan)
 function getPendientes(data){
   return body(data.pendientes).map(r => ({
@@ -327,7 +337,7 @@ function renderAll(data, missing){
   renderMeses(ventas, gastos, data);
   renderTop(stocks, data);
   renderRecent(data);
-  renderAdsDaily(data, selectedMonthKey);
+  renderAds(data, selectedMonthKey);
   document.getElementById('footTime').textContent = new Date().getFullYear();
 }
 
@@ -365,29 +375,67 @@ function renderRecent(data){
   ).join('');
 }
 
-// 7. RENTABILIDAD DE ADS POR DÍA — cruza gasto de ads (Gastos cat "Ads") con ventas del día.
-function renderAdsDaily(data, mk){
+// 7. META ADS — campañas (gasto real por día) + rentabilidad diaria vs ventas.
+function renderAds(data, mk){
   const table = document.getElementById('adsDailyTable');
+  const listBox = document.getElementById('campanasList');
   if(!table) return;
   const k = mk || monthKey(new Date());
   document.getElementById('adsDailyMonth').textContent = monthLabel(k);
 
-  if(!data.ventasDetalle && !data.gastos){
-    table.innerHTML = '<tr><td class="ads-empty">Conecta VentasDetalle y Gastos para ver esta tabla.</td></tr>';
+  if(!data.campanas){
+    if(listBox) listBox.innerHTML = '';
+    table.innerHTML = '<tr><td class="ads-empty">Conecta la pestaña "Campañas" (Meta Ads) para ver tus campañas y el gasto real por día.</td></tr>';
     return;
   }
-  const det = getVentasDetalle(data).filter(v => monthKey(v.date) === k);
-  const gAds = getGastos(data).filter(g => normName(g.categoria) === 'ads' && monthKey(g.date) === k);
+  const campanas = getCampanas(data);
 
+  // --- Lista por campaña (del mes seleccionado), clickeable para ver su detalle diario ---
+  const cMes = campanas.filter(c => monthKey(c.date) === k);
+  const porCampana = {};
+  cMes.forEach(c => {
+    if(!porCampana[c.campana]) porCampana[c.campana] = {total:0, dias:[]};
+    porCampana[c.campana].total += c.gasto;
+    porCampana[c.campana].dias.push(c);
+  });
+  const camps = Object.keys(porCampana).map(n => ({nombre:n, ...porCampana[n]}))
+    .sort((a,b)=>b.total-a.total);
+  if(listBox){
+    if(camps.length === 0){
+      listBox.innerHTML = '<div class="empty">Sin campañas con gasto en ' + monthLabel(k) + '.</div>';
+    } else {
+      const maxC = camps[0].total;
+      listBox.innerHTML = camps.map((c, i) => {
+        const dias = c.dias.slice().sort((a,b)=>a.date-b.date).map(d =>
+          '<div class="camp-day"><span>' + d.date.getDate() + '</span><span class="mono">S/ ' + fmt(d.gasto) + '</span></div>'
+        ).join('');
+        return '<div class="camp-item" data-i="' + i + '">' +
+            '<div class="camp-row">' +
+              '<span class="camp-caret">▸</span>' +
+              '<span class="camp-name">' + esc(c.nombre) + '</span>' +
+              '<span class="camp-total mono">S/ ' + fmt(c.total) + '</span>' +
+            '</div>' +
+            '<div class="camp-bar"><div class="camp-bar-fill" style="width:' + (c.total/maxC*100) + '%"></div></div>' +
+            '<div class="camp-days">' + dias + '</div>' +
+          '</div>';
+      }).join('');
+      // Click para expandir/colapsar el detalle diario de cada campaña
+      listBox.querySelectorAll('.camp-item').forEach(el => {
+        el.querySelector('.camp-row').addEventListener('click', () => el.classList.toggle('open'));
+      });
+    }
+  }
+
+  // --- Tabla por día: gasto REAL de Meta vs ventas y utilidad del día ---
+  const det = data.ventasDetalle ? getVentasDetalle(data).filter(v => monthKey(v.date) === k) : [];
   const byDay = {};
   const slot = (d) => byDay[d] || (byDay[d] = {ads:0, ventas:0, util:0});
-  gAds.forEach(g => { slot(g.date.getDate()).ads += g.monto; });
+  cMes.forEach(c => { slot(c.date.getDate()).ads += c.gasto; });
   det.forEach(v => { const s = slot(v.date.getDate()); s.ventas += v.venta; s.util += v.utilidad; });
 
   const days = Object.keys(byDay).map(Number).filter(d => byDay[d].ads > 0).sort((a,b)=>a-b);
   if(days.length === 0){
-    table.innerHTML = '<tr><td class="ads-empty">No registraste gastos de "Ads" en ' + monthLabel(k) +
-      '. Cuando los anotes en tu app (categoría Ads), aparecen aquí día por día.</td></tr>';
+    table.innerHTML = '<tr><td class="ads-empty">Sin gasto de ads en ' + monthLabel(k) + '.</td></tr>';
     return;
   }
   const tot = {ads:0, ventas:0, util:0};
@@ -679,7 +727,7 @@ document.getElementById('monthSelect').addEventListener('change', (e) => {
   if(LAST){
     renderHero(LAST.ventas, LAST.gastos, LAST.data, selectedMonthKey);
     renderProyeccion(LAST.ventas, LAST.stocks, LAST.data, selectedMonthKey);
-    renderAdsDaily(LAST.data, selectedMonthKey);
+    renderAds(LAST.data, selectedMonthKey);
   }
 });
 

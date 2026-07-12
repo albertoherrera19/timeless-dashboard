@@ -34,6 +34,10 @@ const TIMELESS_CONFIG = {
   // Alimenta "Más vendidos (últimos 30 días)" y la tabla de rentabilidad diaria de ads.
   CSV_VENTASDETALLE: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBRgF8Fuo4jQD-iur4ziP656jtllYGtp6aSN2Uv0Cn3bGZAs1qgq9VInR9w-8dv_ESSvG37G5euD5T/pub?gid=452915688&single=true&output=csv',
 
+  // Pestaña "Campañas" (Fecha, Campaña, Gasto) — gasto real por día y campaña desde Meta Ads.
+  // Se llena importando el archivo Campanas.csv que te genero desde tu cuenta de Meta.
+  CSV_CAMPANAS: '',
+
   // ¿Quieres ver el dashboard con datos de ejemplo antes de conectar tu Sheets?
   // Pon 'sample-data/ventas.csv', 'sample-data/gastos.csv',
   // 'sample-data/publicidad.csv' y 'sample-data/stocks.csv' en los campos de arriba.
