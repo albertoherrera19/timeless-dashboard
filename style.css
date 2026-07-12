@@ -276,6 +276,36 @@ h1{
   margin-top:12px;
   border-top:1px dashed var(--line);
 }
+.pending-block:not(:empty){
+  margin-top:14px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:12px 14px;
+  background:var(--chip);
+}
+.pend-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  font-size:12px;
+  font-weight:700;
+  color:var(--accent);
+  margin-bottom:8px;
+}
+.pend-head .mono{font-size:15px;}
+.pend-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  padding:6px 0;
+  border-top:1px dashed var(--line);
+  font-size:12px;
+}
+.pend-name{color:var(--bone);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pend-amt{font-weight:700;flex-shrink:0;}
+.pend-row.llego .pend-name{color:var(--muted);text-decoration:line-through;}
+.pend-row.llego .pend-amt{color:var(--ok);}
 
 /* 4. Mes a mes (mismo estilo que la app de gastos) */
 .months-bars{

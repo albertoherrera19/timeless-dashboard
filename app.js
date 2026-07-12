@@ -129,6 +129,7 @@ const SOURCES = [
   {key:'gastos',     cfgKey:'CSV_GASTOS',     tab:'Gastos'},
   {key:'publicidad', cfgKey:'CSV_PUBLICIDAD', tab:'Publicidad'},
   {key:'stocks',     cfgKey:'CSV_STOCKS',     tab:'Stocks'},
+  {key:'pendientes', cfgKey:'CSV_PENDIENTES', tab:'Pendientes', optional:true},
 ];
 
 function fetchCSV(url){
@@ -149,7 +150,7 @@ function loadAll(){
   const syncLine = document.getElementById('syncLine');
   syncLine.textContent = 'Cargando datos…';
 
-  const missing = SOURCES.filter(s => !cfg[s.cfgKey]);
+  const missing = SOURCES.filter(s => !cfg[s.cfgKey] && !s.optional);
   const active  = SOURCES.filter(s => !!cfg[s.cfgKey]);
   renderSetupCard(missing);
 
@@ -238,6 +239,22 @@ function getPublicidad(data){
     ventas: parseMoney(r[4]),
     ingreso: parseMoney(r[5]),
   })).filter(p => p.semana && p.gasto > 0);
+}
+
+// Normaliza un nombre de producto para comparar: minúsculas, sin acentos, espacios colapsados.
+function normName(s){
+  return (s == null ? '' : String(s)).toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ').trim();
+}
+
+// Pestaña "Pendientes": Producto, Cantidad, Invertido (pedidos comprados que aún no llegan)
+function getPendientes(data){
+  return body(data.pendientes).map(r => ({
+    producto: (r[0]||'').trim(),
+    cantidad: parseMoney(r[1]),
+    invertido: parseMoney(r[2]),
+  })).filter(p => p.producto);
 }
 
 // Pestaña "Stocks": Producto, Precio, Vendidos, Stock, Ganancia bruta pos., Ganancia neta pos., Invertido
@@ -387,6 +404,42 @@ function renderProyeccion(ventas, stocks, data, mk){
     '<div class="r-row"><span class="r-name">Unidades en stock</span><span class="r-amt">' + fmt0(unidades) + '</span></div>' +
     '<div class="r-row"><span class="r-name">Dinero invertido en ese stock</span><span class="r-amt">S/ ' + fmt(invertido) + '</span></div>' +
     '<div class="r-row"><span class="r-name">Valor de venta del stock</span><span class="r-amt">S/ ' + fmt(valorVenta) + '</span></div>';
+
+  renderPendientes(stocks, data);
+}
+
+// Pedidos comprados que aún no llegan. Un pendiente se "apaga" solo (no se borra)
+// cuando ese producto ya tiene stock > 0 en la pestaña Stocks — así, si pones stock
+// solo para probar la proyección y luego lo bajas a 0, el pendiente reaparece.
+function renderPendientes(stocks, data){
+  const box = document.getElementById('pendingBlock');
+  if(!box) return;
+  if(!data.pendientes){ box.innerHTML = ''; return; }
+
+  const pendientes = getPendientes(data);
+  if(pendientes.length === 0){ box.innerHTML = ''; return; }
+
+  const stockByName = {};
+  stocks.forEach(s => { stockByName[normName(s.producto)] = s.stock; });
+
+  let totalPorLlegar = 0;
+  const rows = pendientes.map(p => {
+    const llego = (stockByName[normName(p.producto)] || 0) > 0;
+    if(!llego) totalPorLlegar += p.invertido;
+    return { p, llego };
+  });
+
+  box.innerHTML =
+    '<div class="pend-head">' +
+      '<span>📦 Dinero en pedidos por llegar</span>' +
+      '<span class="mono accent">S/ ' + fmt(totalPorLlegar) + '</span>' +
+    '</div>' +
+    rows.map(r =>
+      '<div class="pend-row' + (r.llego ? ' llego' : '') + '">' +
+        '<span class="pend-name">' + esc(r.p.producto) + '</span>' +
+        '<span class="pend-amt mono">' + (r.llego ? '✓ llegó' : 'S/ ' + fmt(r.p.invertido)) + '</span>' +
+      '</div>'
+    ).join('');
 }
 
 // 4. MES A MES
