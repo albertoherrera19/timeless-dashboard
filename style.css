@@ -409,6 +409,53 @@ h1{
   padding:26px 16px;
 }
 
+/* Tabla de rentabilidad de ads por día */
+.ads-daily-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.ads-daily{
+  width:100%;
+  border-collapse:collapse;
+  font-size:12px;
+  min-width:440px;
+}
+.ads-daily th{
+  text-align:right;
+  color:var(--muted);
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  font-weight:700;
+  padding:6px 8px;
+  border-bottom:1px solid var(--line);
+}
+.ads-daily th:first-child{text-align:left;}
+.ads-daily td{
+  text-align:right;
+  padding:7px 8px;
+  border-bottom:1px dashed var(--line);
+  white-space:nowrap;
+}
+.ads-daily td:first-child{text-align:left;color:var(--muted);font-family:"SFMono-Regular",Consolas,Menlo,monospace;}
+.ads-daily .r-pos{color:var(--ok);}
+.ads-daily .r-neg{color:var(--bad);}
+.ads-daily tr.ads-total td{
+  border-top:2px solid var(--line);
+  border-bottom:none;
+  font-weight:800;
+  color:var(--bone);
+  padding-top:9px;
+}
+.ads-daily .ads-empty{
+  text-align:center;
+  color:var(--muted);
+  padding:22px 12px;
+  white-space:normal;
+}
+.ads-daily-note{
+  margin-top:10px;
+  font-size:10px;
+  color:var(--muted);
+}
+
 footer{
   margin-top:26px;
   padding-top:14px;

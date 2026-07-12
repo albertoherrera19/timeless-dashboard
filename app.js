@@ -130,6 +130,7 @@ const SOURCES = [
   {key:'publicidad', cfgKey:'CSV_PUBLICIDAD', tab:'Publicidad'},
   {key:'stocks',     cfgKey:'CSV_STOCKS',     tab:'Stocks'},
   {key:'pendientes', cfgKey:'CSV_PENDIENTES', tab:'Pendientes', optional:true},
+  {key:'ventasDetalle', cfgKey:'CSV_VENTASDETALLE', tab:'VentasDetalle', optional:true},
 ];
 
 function fetchCSV(url){
@@ -248,6 +249,25 @@ function normName(s){
     .replace(/\s+/g, ' ').trim();
 }
 
+// Normaliza nombre de producto para agrupar en "más vendidos": sin acentos, "cinto"→"cinturon".
+function normProducto(s){
+  return normName(s).replace(/^cinto\b/, 'cinturon');
+}
+// Separa un combo ("collar A + collar B") en sus piezas.
+function splitCombo(nombre){
+  return String(nombre||'').split('+').map(s => s.trim()).filter(Boolean);
+}
+
+// Pestaña "VentasDetalle": Fecha, Producto, Venta, Utilidad (cada venta con fecha)
+function getVentasDetalle(data){
+  return body(data.ventasDetalle).map(r => ({
+    date: parseDateSmart(r[0]),
+    producto: (r[1]||'').trim(),
+    venta: parseMoney(r[2]),
+    utilidad: parseMoney(r[3]),
+  })).filter(v => v.date && v.venta > 0);
+}
+
 // Pestaña "Pendientes": Producto, Cantidad, Invertido (pedidos comprados que aún no llegan)
 function getPendientes(data){
   return body(data.pendientes).map(r => ({
@@ -283,7 +303,92 @@ function renderAll(data, missing){
   renderProyeccion(ventas, stocks, data, selectedMonthKey);
   renderMeses(ventas, gastos, data);
   renderTop(stocks, data);
+  renderRecent(data);
+  renderAdsDaily(data, selectedMonthKey);
   document.getElementById('footTime').textContent = new Date().getFullYear();
+}
+
+// 6. MÁS VENDIDOS (últimos 30 días) — parsea combos separando por "+".
+function renderRecent(data){
+  const box = document.getElementById('recentRows');
+  if(!box) return;
+  if(!data.ventasDetalle){ box.innerHTML = needCfg('VentasDetalle'); return; }
+  const det = getVentasDetalle(data);
+  const cutoff = new Date(); cutoff.setHours(0,0,0,0); cutoff.setDate(cutoff.getDate() - 30);
+  const agg = {}; // key normalizado -> {name, units, revenue}
+  det.filter(v => v.date >= cutoff).forEach(v => {
+    const pieces = splitCombo(v.producto);
+    if(pieces.length === 0) return;
+    const share = v.venta / pieces.length;
+    pieces.forEach(p => {
+      const key = normProducto(p);
+      if(!key) return;
+      if(!agg[key]) agg[key] = { name:p, units:0, revenue:0 };
+      agg[key].units += 1;
+      agg[key].revenue += share;
+    });
+  });
+  const rows = Object.values(agg).sort((a,b) => b.units - a.units || b.revenue - a.revenue).slice(0, 12);
+  if(rows.length === 0){ box.innerHTML = '<div class="empty">Sin ventas en los últimos 30 días.</div>'; return; }
+  const max = rows[0].units;
+  box.innerHTML = rows.map((r, i) =>
+    '<div class="top-row">' +
+      '<span class="top-rank">' + String(i+1).padStart(2,'0') + '</span>' +
+      '<span class="top-name">' + esc(cap(r.name)) + '</span>' +
+      '<span class="top-stock">' + fmt0(r.units) + ' vend</span>' +
+      '<span class="top-amt">S/ ' + fmt(r.revenue) + '</span>' +
+    '</div>' +
+    '<div class="top-bar"><div class="top-bar-fill" style="width:' + (r.units/max*100) + '%"></div></div>'
+  ).join('');
+}
+
+// 7. RENTABILIDAD DE ADS POR DÍA — cruza gasto de ads (Gastos cat "Ads") con ventas del día.
+function renderAdsDaily(data, mk){
+  const table = document.getElementById('adsDailyTable');
+  if(!table) return;
+  const k = mk || monthKey(new Date());
+  document.getElementById('adsDailyMonth').textContent = monthLabel(k);
+
+  if(!data.ventasDetalle && !data.gastos){
+    table.innerHTML = '<tr><td class="ads-empty">Conecta VentasDetalle y Gastos para ver esta tabla.</td></tr>';
+    return;
+  }
+  const det = getVentasDetalle(data).filter(v => monthKey(v.date) === k);
+  const gAds = getGastos(data).filter(g => normName(g.categoria) === 'ads' && monthKey(g.date) === k);
+
+  const byDay = {};
+  const slot = (d) => byDay[d] || (byDay[d] = {ads:0, ventas:0, util:0});
+  gAds.forEach(g => { slot(g.date.getDate()).ads += g.monto; });
+  det.forEach(v => { const s = slot(v.date.getDate()); s.ventas += v.venta; s.util += v.utilidad; });
+
+  const days = Object.keys(byDay).map(Number).filter(d => byDay[d].ads > 0).sort((a,b)=>a-b);
+  if(days.length === 0){
+    table.innerHTML = '<tr><td class="ads-empty">No registraste gastos de "Ads" en ' + monthLabel(k) +
+      '. Cuando los anotes en tu app (categoría Ads), aparecen aquí día por día.</td></tr>';
+    return;
+  }
+  const tot = {ads:0, ventas:0, util:0};
+  const head = '<tr><th>Día</th><th>Gasto ads</th><th>Ventas</th><th>Utilidad</th><th>Neto −ads</th><th>Ratio</th></tr>';
+  const rows = days.map(d => {
+    const s = byDay[d]; tot.ads += s.ads; tot.ventas += s.ventas; tot.util += s.util;
+    const neto = s.util - s.ads, ratio = s.ads > 0 ? s.util/s.ads : 0;
+    return '<tr>' +
+      '<td>' + d + '</td>' +
+      '<td class="mono">S/ ' + fmt(s.ads) + '</td>' +
+      '<td class="mono">S/ ' + fmt(s.ventas) + '</td>' +
+      '<td class="mono">S/ ' + fmt(s.util) + '</td>' +
+      '<td class="mono ' + (neto<0?'r-neg':'r-pos') + '">S/ ' + fmt(neto) + '</td>' +
+      '<td class="mono ' + (ratio>=1?'r-pos':'r-neg') + '">' + ratio.toFixed(2) + 'x</td>' +
+    '</tr>';
+  }).join('');
+  const totNeto = tot.util - tot.ads, totRatio = tot.ads > 0 ? tot.util/tot.ads : 0;
+  const foot = '<tr class="ads-total"><td>Total</td>' +
+    '<td class="mono">S/ ' + fmt(tot.ads) + '</td>' +
+    '<td class="mono">S/ ' + fmt(tot.ventas) + '</td>' +
+    '<td class="mono">S/ ' + fmt(tot.util) + '</td>' +
+    '<td class="mono">S/ ' + fmt(totNeto) + '</td>' +
+    '<td class="mono">' + totRatio.toFixed(2) + 'x</td></tr>';
+  table.innerHTML = head + rows + foot;
 }
 
 // Llena el selector de mes con los meses que existen en Ventas o Gastos.
@@ -528,6 +633,7 @@ document.getElementById('monthSelect').addEventListener('change', (e) => {
   if(LAST){
     renderHero(LAST.ventas, LAST.gastos, LAST.data, selectedMonthKey);
     renderProyeccion(LAST.ventas, LAST.stocks, LAST.data, selectedMonthKey);
+    renderAdsDaily(LAST.data, selectedMonthKey);
   }
 });
 

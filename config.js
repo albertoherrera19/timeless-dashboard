@@ -30,6 +30,10 @@ const TIMELESS_CONFIG = {
   // El dashboard "apaga" solo un pendiente cuando ese producto ya tiene stock > 0 en Stocks.
   CSV_PENDIENTES: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBRgF8Fuo4jQD-iur4ziP656jtllYGtp6aSN2Uv0Cn3bGZAs1qgq9VInR9w-8dv_ESSvG37G5euD5T/pub?gid=1727096989&single=true&output=csv',
 
+  // Pestaña "VentasDetalle" (Fecha, Producto, Venta, Utilidad) — cada venta con su fecha.
+  // Alimenta "Más vendidos (últimos 30 días)" y la tabla de rentabilidad diaria de ads.
+  CSV_VENTASDETALLE: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBRgF8Fuo4jQD-iur4ziP656jtllYGtp6aSN2Uv0Cn3bGZAs1qgq9VInR9w-8dv_ESSvG37G5euD5T/pub?gid=452915688&single=true&output=csv',
+
   // ¿Quieres ver el dashboard con datos de ejemplo antes de conectar tu Sheets?
   // Pon 'sample-data/ventas.csv', 'sample-data/gastos.csv',
   // 'sample-data/publicidad.csv' y 'sample-data/stocks.csv' en los campos de arriba.

@@ -94,10 +94,25 @@
     <div class="months-list" id="monthsList"></div>
   </section>
 
-  <!-- 5. TOP PRODUCTOS -->
+  <!-- 5. TOP PRODUCTOS (ganancia potencial en stock) -->
   <section class="card span2" id="topCard">
     <div class="section-label">Top productos · ganancia potencial en stock</div>
     <div class="top-rows" id="topRows"></div>
+  </section>
+
+  <!-- 6. MÁS VENDIDOS (últimos 30 días) -->
+  <section class="card span2" id="recentCard">
+    <div class="section-label">Más vendidos · últimos 30 días</div>
+    <div class="top-rows" id="recentRows"></div>
+  </section>
+
+  <!-- 7. RENTABILIDAD DE ADS (por día) -->
+  <section class="card span2" id="adsDailyCard">
+    <div class="section-label">Rentabilidad de ads · por día (<span id="adsDailyMonth">—</span>)</div>
+    <div class="ads-daily-wrap">
+      <table class="ads-daily" id="adsDailyTable"></table>
+    </div>
+    <div class="ads-daily-note">Gasto de ads = tus gastos de categoría "Ads" ese día. Ventas = todo lo vendido ese día.</div>
   </section>
 
 </main>
