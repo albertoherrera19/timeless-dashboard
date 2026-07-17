@@ -214,12 +214,42 @@ function body(rows){ return rows && rows.length > 1 ? rows.slice(1) : []; }
 // Pestaña "Ventas": una fila por MES → Mes (fecha 1er día), Ingresos, Ganancia neta
 // (Ganancia neta = ingresos − costo de productos, tal como Alberto ya la calcula
 //  en sus hojas mensuales; NO incluye los gastos, esos se restan aparte.)
+//
+// Si VentasDetalle tiene filas de un mes (se sincroniza solo desde su Excel vía
+// sync-ventas.ps1), esas se usan de preferencia para ESE mes — así el dashboard
+// queda al día automáticamente sin que Alberto tenga que reescribir el resumen
+// mensual a mano. Los meses sin filas en VentasDetalle siguen usando el resumen
+// manual de la pestaña "Ventas" (útil para meses viejos importados una sola vez).
 function getVentas(data){
-  return body(data.ventas).map(r => ({
+  const manual = body(data.ventas).map(r => ({
     date: parseDateSmart(r[0]),
     ingresos: parseMoney(r[1]),
     gananciaNeta: parseMoney(r[2]),
   })).filter(v => v.date && (v.ingresos > 0 || v.gananciaNeta !== 0));
+
+  if(!data.ventasDetalle) return manual;
+
+  const det = getVentasDetalle(data);
+  if(det.length === 0) return manual;
+
+  const porMes = {};
+  det.forEach(v => {
+    const k = monthKey(v.date);
+    const s = porMes[k] || (porMes[k] = {ingresos:0, gananciaNeta:0});
+    s.ingresos += v.venta;
+    s.gananciaNeta += v.utilidad;
+  });
+  const mesesConDetalle = new Set(Object.keys(porMes));
+
+  const resultado = manual.filter(v => !mesesConDetalle.has(monthKey(v.date)));
+  Object.keys(porMes).forEach(k => {
+    resultado.push({
+      date: new Date(+k.slice(0,4), +k.slice(5)-1, 1),
+      ingresos: porMes[k].ingresos,
+      gananciaNeta: porMes[k].gananciaNeta,
+    });
+  });
+  return resultado;
 }
 
 function getGastos(data){
@@ -860,6 +890,7 @@ function renderPendientesFsBody(rows){
 // 4. MES A MES — 3 métricas seleccionables: Utilidad neta / Ingresos / Ganancia neta de ventas.
 let mesesMetric = 'util';
 try{ mesesMetric = localStorage.getItem('timeless_meses_metric') || 'util'; }catch(e){}
+if(mesesMetric !== 'util' && mesesMetric !== 'ing') mesesMetric = 'util';
 
 function renderMeses(ventas, gastos, data){
   const barsBox = document.getElementById('monthsBars');
