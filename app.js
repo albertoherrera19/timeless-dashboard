@@ -462,6 +462,143 @@ function renderAds(data, mk){
   table.innerHTML = head + rows + foot;
 }
 
+/* ---------- Meta Ads: vista de pantalla completa (15 días / por campaña / semanal) ---------- */
+function getWeekStart(d){
+  const dt = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = (dt.getDay() + 6) % 7; // 0 = lunes
+  dt.setDate(dt.getDate() - day);
+  return dt;
+}
+function fmtDateShort(d){
+  return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
+}
+function dayKey(d){ return +new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+
+// Tabla reutilizable de rentabilidad (gasto ads vs ventas) para cualquier agrupación de filas.
+function buildRentTable(rows){
+  if(rows.length === 0) return '<div class="empty">Sin datos para mostrar en este rango.</div>';
+  const tot = {ads:0, ventas:0, util:0};
+  const head = '<tr><th>Fecha</th><th>Gasto ads</th><th>Ventas</th><th>Utilidad</th><th>Neto −ads</th><th>Ratio</th></tr>';
+  const body = rows.map(r => {
+    tot.ads += r.ads; tot.ventas += r.ventas; tot.util += r.util;
+    const neto = r.util - r.ads, ratio = r.ads > 0 ? r.util/r.ads : 0;
+    return '<tr>' +
+      '<td>' + esc(r.label) + '</td>' +
+      '<td class="mono">S/ ' + fmt(r.ads) + '</td>' +
+      '<td class="mono">S/ ' + fmt(r.ventas) + '</td>' +
+      '<td class="mono">S/ ' + fmt(r.util) + '</td>' +
+      '<td class="mono ' + (neto<0?'r-neg':'r-pos') + '">S/ ' + fmt(neto) + '</td>' +
+      '<td class="mono ' + (ratio>=1?'r-pos':'r-neg') + '">' + ratio.toFixed(2) + 'x</td>' +
+    '</tr>';
+  }).join('');
+  const totNeto = tot.util - tot.ads, totRatio = tot.ads > 0 ? tot.util/tot.ads : 0;
+  const foot = '<tr class="ads-total"><td>Total</td>' +
+    '<td class="mono">S/ ' + fmt(tot.ads) + '</td>' +
+    '<td class="mono">S/ ' + fmt(tot.ventas) + '</td>' +
+    '<td class="mono">S/ ' + fmt(tot.util) + '</td>' +
+    '<td class="mono">S/ ' + fmt(totNeto) + '</td>' +
+    '<td class="mono">' + totRatio.toFixed(2) + 'x</td></tr>';
+  return '<div class="ads-daily-wrap"><table class="ads-daily">' + head + body + foot + '</table></div>';
+}
+
+let adsFsView = 'ult15';
+let adsFsCampaign = null;
+
+document.getElementById('adsDetailBtn').addEventListener('click', () => {
+  if(!LAST || !LAST.data.campanas){
+    openFullscreen('Meta Ads · detalle', needCfg('la pestaña Campañas'));
+    return;
+  }
+  const campanasAll = getCampanas(LAST.data);
+  if(campanasAll.length === 0){
+    openFullscreen('Meta Ads · detalle', '<div class="empty">Aún no hay gasto registrado en la pestaña Campañas.</div>');
+    return;
+  }
+  const nombres = [...new Set(campanasAll.map(c => c.campana))];
+  const masReciente = campanasAll.slice().sort((a,b) => b.date - a.date)[0].campana;
+  if(nombres.indexOf(adsFsCampaign) === -1) adsFsCampaign = masReciente;
+  adsFsView = 'ult15';
+  openFullscreen('Meta Ads · detalle', renderAdsFsBody());
+  wireAdsFsTabs();
+});
+
+function renderAdsFsBody(){
+  const campanasAll = getCampanas(LAST.data);
+  const ventasAll = LAST.data.ventasDetalle ? getVentasDetalle(LAST.data) : [];
+  const nombres = [...new Set(campanasAll.map(c => c.campana))].sort();
+
+  const tabs = '<div class="fs-tabs" id="adsFsTabs">' +
+      '<button type="button" data-v="ult15">Últimos 15 días</button>' +
+      '<button type="button" data-v="campana">Por campaña</button>' +
+      '<button type="button" data-v="semanal">Semanal</button>' +
+    '</div>';
+
+  let inner = '';
+  if(adsFsView === 'ult15'){
+    const cutoff = new Date(); cutoff.setHours(0,0,0,0); cutoff.setDate(cutoff.getDate() - 14);
+    const hoy = new Date(); hoy.setHours(23,59,59,999);
+    const enRango = (d) => d >= cutoff && d <= hoy;
+    const byDay = {};
+    const slot = (d) => { const k = dayKey(d); return byDay[k] || (byDay[k] = {date:d, ads:0, ventas:0, util:0}); };
+    campanasAll.filter(c => enRango(c.date)).forEach(c => { slot(c.date).ads += c.gasto; });
+    ventasAll.filter(v => enRango(v.date)).forEach(v => { const s = slot(v.date); s.ventas += v.venta; s.util += v.utilidad; });
+    const rows = Object.values(byDay).sort((a,b) => a.date - b.date)
+      .map(s => ({label: fmtDateShort(s.date), ads:s.ads, ventas:s.ventas, util:s.util}));
+    inner = '<div class="table-title">Gasto real (todas las campañas) vs ventas · últimos 15 días</div>' + buildRentTable(rows);
+  } else if(adsFsView === 'campana'){
+    const sel = '<select class="fs-select" id="adsFsCampSelect">' +
+        nombres.map(n => '<option value="' + esc(n) + '"' + (n===adsFsCampaign?' selected':'') + '>' + esc(n) + '</option>').join('') +
+      '</select>';
+    const dias = campanasAll.filter(c => c.campana === adsFsCampaign).sort((a,b) => a.date - b.date);
+    const ventasByDay = {};
+    ventasAll.forEach(v => { const k = dayKey(v.date); const s = ventasByDay[k] || (ventasByDay[k] = {ventas:0, util:0}); s.ventas += v.venta; s.util += v.utilidad; });
+    const rows = dias.map(c => {
+      const v = ventasByDay[dayKey(c.date)] || {ventas:0, util:0};
+      return {label: fmtDateShort(c.date), ads:c.gasto, ventas:v.ventas, util:v.util};
+    });
+    inner = sel + '<div class="table-title">Gasto de "' + esc(adsFsCampaign||'') + '" por día (aparece aunque solo tenga 1 día de datos)</div>' + buildRentTable(rows);
+  } else { // semanal
+    const byWeek = {};
+    campanasAll.forEach(c => {
+      const k = +getWeekStart(c.date);
+      const s = byWeek[k] || (byWeek[k] = {start:getWeekStart(c.date), ads:0, ventas:0, util:0});
+      s.ads += c.gasto;
+    });
+    ventasAll.forEach(v => {
+      const k = +getWeekStart(v.date);
+      const s = byWeek[k];
+      if(s){ s.ventas += v.venta; s.util += v.utilidad; }
+    });
+    const rows = Object.values(byWeek).sort((a,b) => a.start - b.start).map(w => {
+      const end = new Date(w.start); end.setDate(end.getDate()+6);
+      return {label: fmtDateShort(w.start) + '–' + fmtDateShort(end), ads:w.ads, ventas:w.ventas, util:w.util};
+    });
+    inner = '<div class="table-title">Gasto real (todas las campañas) vs ventas · por semana</div>' + buildRentTable(rows);
+  }
+  return tabs + inner;
+}
+
+function wireAdsFsTabs(){
+  const tabs = document.getElementById('adsFsTabs');
+  if(!tabs) return;
+  tabs.querySelectorAll('button').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('data-v') === adsFsView);
+    b.addEventListener('click', () => {
+      adsFsView = b.getAttribute('data-v');
+      setFsBody(renderAdsFsBody());
+      wireAdsFsTabs();
+    });
+  });
+  const sel = document.getElementById('adsFsCampSelect');
+  if(sel){
+    sel.addEventListener('change', () => {
+      adsFsCampaign = sel.value;
+      setFsBody(renderAdsFsBody());
+      wireAdsFsTabs();
+    });
+  }
+}
+
 // Llena el selector de mes con los meses que existen en Ventas o Gastos.
 // Por defecto muestra el mes actual si hay datos; si no, el más reciente.
 function buildMonthOptions(ventas, gastos){
@@ -484,6 +621,23 @@ function buildMonthOptions(ventas, gastos){
 function needCfg(tabs){
   return '<div class="empty">Conecta ' + tabs + ' en config.js para ver esta sección.</div>';
 }
+
+/* ---------- Vista de pantalla completa (reutilizable) ---------- */
+function openFullscreen(title, bodyHtml){
+  document.getElementById('fsTitle').textContent = title;
+  document.getElementById('fsBody').innerHTML = bodyHtml;
+  document.getElementById('fsView').hidden = false;
+  document.body.style.overflow = 'hidden';
+  window.scrollTo(0,0);
+}
+function closeFullscreen(){
+  document.getElementById('fsView').hidden = true;
+  document.body.style.overflow = '';
+}
+function setFsBody(bodyHtml){
+  document.getElementById('fsBody').innerHTML = bodyHtml;
+}
+document.getElementById('fsBack').addEventListener('click', closeFullscreen);
 
 // 1. UTILIDAD DEL MES
 function renderHero(ventas, gastos, data, mk){
@@ -595,12 +749,46 @@ function renderProyeccion(ventas, stocks, data, mk){
   document.getElementById('projBarFill').style.width =
     (valorVenta > 0 ? Math.min(100, invertido/valorVenta*100) : 0) + '%';
 
-  extra.innerHTML =
+  let extraHtml =
     '<div class="r-row"><span class="r-name">↳ Recuperas lo invertido</span><span class="r-amt">S/ ' + fmt(invertido) + '</span></div>' +
     '<div class="r-row"><span class="r-name">↳ De eso, tu ganancia neta</span><span class="r-amt plus">S/ ' + fmt(posible) + '</span></div>' +
     '<div class="r-row"><span class="r-name">Unidades en stock</span><span class="r-amt">' + fmt0(unidades) + '</span></div>';
 
+  // Si además te llega TODO lo pendiente (pedidos comprados que aún no llegan),
+  // suma su potencial de ingresos/ganancia neta al techo de stock actual.
+  if(data.pendientes){
+    const pendRows = getPendientesConValor(stocks, data).filter(r => !r.llego);
+    if(pendRows.length > 0){
+      const pendIngresos = pendRows.reduce((s,r) => s + r.ingresos, 0);
+      const pendGN = pendRows.reduce((s,r) => s + r.gananciaNeta, 0);
+      const sinPrecio = pendRows.filter(r => !r.tienePrecio).length;
+      extraHtml +=
+        '<div class="r-row total"><span class="r-name">Si además te llega TODO lo pendiente, en efectivo</span><span class="r-amt">S/ ' + fmt(valorVenta + pendIngresos) + '</span></div>' +
+        '<div class="r-row"><span class="r-name">↳ De eso, tu ganancia neta</span><span class="r-amt plus">S/ ' + fmt(posible + pendGN) + '</span></div>';
+      if(sinPrecio > 0){
+        extraHtml += '<div class="r-row faint"><span class="r-name">↳ ' + sinPrecio + ' producto(s) pendiente(s) sin precio aún en Stocks (no cuentan arriba, solo en Invertido)</span></div>';
+      }
+    }
+  }
+
+  extra.innerHTML = extraHtml;
   renderPendientes(stocks, data);
+}
+
+// Pendientes con su valor proyectado: Ingresos = precio (Stocks) × cantidad pendiente.
+// Ganancia neta = Ingresos − Invertido (el invertido ya es el costo real de ese pedido).
+// Si el producto aún no tiene fila en Stocks (o sin precio), no se puede proyectar y queda en 0.
+function getPendientesConValor(stocks, data){
+  const stockByName = {};
+  stocks.forEach(s => { stockByName[normName(s.producto)] = s; });
+  return getPendientes(data).map(p => {
+    const s = stockByName[normName(p.producto)];
+    const llego = (s ? s.stock : 0) > 0;
+    const tienePrecio = !!(s && s.precio > 0);
+    const ingresos = tienePrecio ? p.cantidad * s.precio : 0;
+    const gananciaNeta = tienePrecio ? ingresos - p.invertido : 0;
+    return Object.assign({}, p, {llego, tienePrecio, ingresos, gananciaNeta});
+  });
 }
 
 // Pedidos comprados que aún no llegan. Un pendiente se "apaga" solo (no se borra)
@@ -609,35 +797,70 @@ function renderProyeccion(ventas, stocks, data, mk){
 function renderPendientes(stocks, data){
   const box = document.getElementById('pendingBlock');
   if(!box) return;
+  box.classList.remove('clickable');
+  box.onclick = null;
   if(!data.pendientes){ box.innerHTML = ''; return; }
 
-  const pendientes = getPendientes(data);
-  if(pendientes.length === 0){ box.innerHTML = ''; return; }
+  const rows = getPendientesConValor(stocks, data);
+  if(rows.length === 0){ box.innerHTML = ''; return; }
 
-  const stockByName = {};
-  stocks.forEach(s => { stockByName[normName(s.producto)] = s.stock; });
-
-  let totalPorLlegar = 0;
-  const rows = pendientes.map(p => {
-    const llego = (stockByName[normName(p.producto)] || 0) > 0;
-    if(!llego) totalPorLlegar += p.invertido;
-    return { p, llego };
-  });
+  const totalPorLlegar = rows.filter(r => !r.llego).reduce((s,r) => s + r.invertido, 0);
 
   box.innerHTML =
     '<div class="pend-head">' +
-      '<span>📦 Dinero en pedidos por llegar</span>' +
+      '<span>📦 Dinero en pedidos por llegar · Invertido</span>' +
       '<span class="mono accent">S/ ' + fmt(totalPorLlegar) + '</span>' +
     '</div>' +
     rows.map(r =>
       '<div class="pend-row' + (r.llego ? ' llego' : '') + '">' +
-        '<span class="pend-name">' + esc(r.p.producto) + '</span>' +
-        '<span class="pend-amt mono">' + (r.llego ? '✓ llegó' : 'S/ ' + fmt(r.p.invertido)) + '</span>' +
+        '<span class="pend-name">' + esc(r.producto) + '</span>' +
+        '<span class="pend-amt mono">' + (r.llego ? '✓ llegó' : 'S/ ' + fmt(r.invertido)) + '</span>' +
       '</div>'
-    ).join('');
+    ).join('') +
+    '<div class="pend-hint">Toca para ver Invertido, Ingresos y Ganancia neta por separado ▸</div>';
+
+  box.classList.add('clickable');
+  box.onclick = () => openFullscreen('Pedidos por llegar · detalle', renderPendientesFsBody(rows));
 }
 
-// 4. MES A MES
+// Vista de pantalla completa de Pendientes: las 3 métricas por separado (totales)
+// más el detalle por producto.
+function renderPendientesFsBody(rows){
+  const activos = rows.filter(r => !r.llego);
+  const totInv = activos.reduce((s,r) => s + r.invertido, 0);
+  const totIng = activos.reduce((s,r) => s + r.ingresos, 0);
+  const totGN  = activos.reduce((s,r) => s + r.gananciaNeta, 0);
+
+  const stats =
+    '<div class="fs-metric-row"><span class="fs-mname">Invertido (lo que ya pagaste)</span><span class="fs-mamt">S/ ' + fmt(totInv) + '</span></div>' +
+    '<div class="fs-metric-row"><span class="fs-mname">Ingresos si vendes todo (venta bruta)</span><span class="fs-mamt">S/ ' + fmt(totIng) + '</span></div>' +
+    '<div class="fs-metric-row"><span class="fs-mname">Ganancia neta si vendes todo</span><span class="fs-mamt">S/ ' + fmt(totGN) + '</span></div>';
+
+  const sinPrecio = activos.filter(r => !r.tienePrecio).length;
+  const nota = sinPrecio > 0
+    ? '<div class="ads-daily-note">⚠ ' + sinPrecio + ' producto(s) pendiente(s) no tienen precio en la pestaña Stocks todavía, así que no se puede calcular su Ingresos/Ganancia neta (por eso solo cuentan en Invertido).</div>'
+    : '';
+
+  const head = '<tr><th>Producto</th><th>Cant.</th><th>Invertido</th><th>Ingresos</th><th>Gan. neta</th><th>Estado</th></tr>';
+  const body = rows.map(r =>
+    '<tr>' +
+      '<td>' + esc(r.producto) + '</td>' +
+      '<td class="mono">' + fmt0(r.cantidad) + '</td>' +
+      '<td class="mono">S/ ' + fmt(r.invertido) + '</td>' +
+      '<td class="mono">' + (r.tienePrecio ? 'S/ ' + fmt(r.ingresos) : '—') + '</td>' +
+      '<td class="mono">' + (r.tienePrecio ? 'S/ ' + fmt(r.gananciaNeta) : '—') + '</td>' +
+      '<td>' + (r.llego ? '✓ llegó' : 'pendiente') + '</td>' +
+    '</tr>'
+  ).join('');
+  const table = '<div class="table-title">Detalle por producto</div>' + '<div class="ads-daily-wrap"><table class="ads-daily">' + head + body + '</table></div>';
+
+  return stats + nota + table;
+}
+
+// 4. MES A MES — 3 métricas seleccionables: Utilidad neta / Ingresos / Ganancia neta de ventas.
+let mesesMetric = 'util';
+try{ mesesMetric = localStorage.getItem('timeless_meses_metric') || 'util'; }catch(e){}
+
 function renderMeses(ventas, gastos, data){
   const barsBox = document.getElementById('monthsBars');
   const listBox = document.getElementById('monthsList');
@@ -646,6 +869,9 @@ function renderMeses(ventas, gastos, data){
     listBox.innerHTML = '';
     return;
   }
+
+  document.querySelectorAll('#mesesToggle button').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-metric') === mesesMetric));
 
   // Sigue el mismo modo del hero: 'negocio' resta solo gastos de negocio;
   // 'todo' resta también los personales.
@@ -676,22 +902,24 @@ function renderMeses(ventas, gastos, data){
     };
   });
 
-  const maxAbs = Math.max(...series.map(s=>Math.abs(s.util)), 1);
+  const maxAbs = Math.max(...series.map(s => Math.abs(s[mesesMetric])), 1);
   barsBox.innerHTML = series.map(s => {
-    const h = Math.max(Math.abs(s.util)/maxAbs*100, 4);
-    return '<div class="mbar' + (s.current?' current':'') + (s.util<0?' neg':'') + '">' +
-             '<div class="col" style="height:' + h + '%"><span class="val">' + fmt0(s.util) + '</span></div>' +
+    const val = s[mesesMetric];
+    const h = Math.max(Math.abs(val)/maxAbs*100, 4);
+    return '<div class="mbar' + (s.current?' current':'') + (val<0?' neg':'') + '">' +
+             '<div class="col" style="height:' + h + '%"><span class="val">' + fmt0(val) + '</span></div>' +
              '<div class="mlbl">' + s.label + '</div>' +
            '</div>';
   }).join('');
 
-  listBox.innerHTML = [...series].reverse().map(s =>
-    '<div class="ml-row' + (s.current?' current':'') + '">' +
+  listBox.innerHTML = [...series].reverse().map(s => {
+    const val = s[mesesMetric];
+    return '<div class="ml-row' + (s.current?' current':'') + '">' +
       '<span class="ml-name">' + s.full +
-        ' <span class="ml-detail">Ing ' + fmt0(s.ing) + ' · GN ' + fmt0(s.gn) + ' · Gastos ' + fmt0(s.g) + '</span></span>' +
-      '<span class="ml-amt' + (s.util<0?' neg':'') + '">S/ ' + fmt(s.util) + '</span>' +
-    '</div>'
-  ).join('');
+        ' <span class="ml-detail">Ing ' + fmt0(s.ing) + ' · GN ' + fmt0(s.gn) + ' · Gastos ' + fmt0(s.g) + ' · Util ' + fmt0(s.util) + '</span></span>' +
+      '<span class="ml-amt' + (val<0?' neg':'') + '">S/ ' + fmt(val) + '</span>' +
+    '</div>';
+  }).join('');
 }
 
 // 5. TOP PRODUCTOS
@@ -741,6 +969,15 @@ document.getElementById('utilToggle').addEventListener('click', (e) => {
     renderHero(LAST.ventas, LAST.gastos, LAST.data, selectedMonthKey);
     renderMeses(LAST.ventas, LAST.gastos, LAST.data);
   }
+});
+
+// Mes a mes: elegir qué métrica mostrar (Utilidad neta / Ingresos / Ganancia neta de ventas).
+document.getElementById('mesesToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-metric]');
+  if(!btn) return;
+  mesesMetric = btn.getAttribute('data-metric');
+  try{ localStorage.setItem('timeless_meses_metric', mesesMetric); }catch(err){}
+  if(LAST) renderMeses(LAST.ventas, LAST.gastos, LAST.data);
 });
 
 let savedTheme = 'negro';

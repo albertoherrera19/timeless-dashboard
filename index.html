@@ -61,7 +61,10 @@
 
   <!-- 2. META ADS · campañas + rentabilidad -->
   <section class="card span2" id="adsDailyCard">
-    <div class="section-label">Meta Ads · campañas y rentabilidad (<span id="adsDailyMonth">—</span>)</div>
+    <div class="hero-top">
+      <div class="section-label">Meta Ads · campañas y rentabilidad (<span id="adsDailyMonth">—</span>)</div>
+      <button type="button" class="detail-btn" id="adsDetailBtn">Ver detalle día a día ▸</button>
+    </div>
     <div class="campanas-list" id="campanasList"></div>
     <div class="table-title">Por día · gasto real vs ventas</div>
     <div class="ads-daily-wrap">
@@ -88,7 +91,14 @@
 
   <!-- 4. COMPARATIVO MES A MES -->
   <section class="card span2" id="monthsCard">
-    <div class="section-label">Utilidad neta mes a mes</div>
+    <div class="hero-top">
+      <div class="section-label">Mes a mes</div>
+      <div class="util-toggle" id="mesesToggle">
+        <button type="button" data-metric="util">Utilidad neta</button>
+        <button type="button" data-metric="ing">Ingresos</button>
+        <button type="button" data-metric="gn">Ganancia neta ventas</button>
+      </div>
+    </div>
     <div class="months-bars" id="monthsBars"></div>
     <div class="months-list" id="monthsList"></div>
   </section>
@@ -112,6 +122,15 @@
   <span class="mono">TIMELESS STORE</span> · datos desde Google Sheets · <span id="footTime"></span>
 </footer>
 
+</div>
+
+<!-- Vista de pantalla completa (Ads día a día / Pendientes por vista) -->
+<div class="fullscreen-view" id="fsView" hidden>
+  <div class="fs-header">
+    <button type="button" class="fs-back" id="fsBack">← Volver</button>
+    <div class="fs-title" id="fsTitle">—</div>
+  </div>
+  <div class="fs-body" id="fsBody"></div>
 </div>
 
 <script src="config.js"></script>
