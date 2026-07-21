@@ -1071,8 +1071,9 @@ function renderCompras(){
     const unidades = productos.reduce((s,p) => s + (Number(p.cantidad)||0), 0);
     const nProd = productos.length;
     const nPedidos = productos.filter(p => p.pedido).length;
-    const thumb = c.fotoUrl
-      ? '<img src="' + esc(c.fotoUrl) + '" alt="">'
+    const primeraFoto = (c.fotos && c.fotos[0]) || '';
+    const thumb = primeraFoto
+      ? '<img src="' + esc(primeraFoto) + '" alt="">' + (c.fotos.length > 1 ? '<span class="compra-thumb-count">+' + (c.fotos.length-1) + '</span>' : '')
       : '<div class="compra-thumb-empty">📦</div>';
     let pedidoTxt = '';
     if(nProd > 0){
@@ -1159,12 +1160,11 @@ function uploadCompraFoto(file, onStatus){
 
 function renderCompraForm(c){
   const editando = !!c;
-  const productos = (c && c.productos && c.productos.length) ? c.productos : [{producto:'', cantidad:'', precioVenta:'', pedido:false, tipo:'Nuevo'}];
+  const productos = (c && c.productos && c.productos.length) ? c.productos : [{producto:'', cantidad:'', precioVenta:'', pedido:false, tipo:'Nuevo', fotos:[]}];
   const fRows = productos.map(p => compraProductoRowHtml(p.producto, p.cantidad, p.precioVenta, p.pedido, p.tipo)).join('');
   const fIni = c && c.fechaInicio ? new Date(c.fechaInicio).toISOString().slice(0,10) : '';
   const fFin = c && c.fechaFin ? new Date(c.fechaFin).toISOString().slice(0,10) : '';
   const estado = (c && c.estado) || 'Ambos';
-  const fotoUrl = (c && c.fotoUrl) || '';
 
   return '<div class="compra-form">' +
     '<label class="cf-label">Nombre del bloque</label>' +
@@ -1195,14 +1195,10 @@ function renderCompraForm(c){
 
     '<div class="cf-proyeccion" id="cfProyeccion"></div>' +
 
-    '<label class="cf-label">Foto</label>' +
-    '<div class="cf-foto-row">' +
-      '<div class="cf-foto-preview" id="cfFotoPreview">' + (fotoUrl ? '<img src="' + esc(fotoUrl) + '">' : '<span>Sin foto</span>') + '</div>' +
-      '<div class="cf-foto-actions">' +
-        '<label class="cf-file-btn">Elegir foto<input type="file" accept="image/*" id="cfFotoInput" hidden></label>' +
-        '<div class="cf-foto-status" id="cfFotoStatus"></div>' +
-      '</div>' +
-    '</div>' +
+    '<label class="cf-label">Fotos del bloque (puedes subir varias)</label>' +
+    '<div class="cf-fotos-strip" id="cfFotosStrip"></div>' +
+    '<label class="cf-file-btn">+ Agregar foto(s)<input type="file" accept="image/*" multiple id="cfFotoInput" hidden></label>' +
+    '<div class="cf-foto-status" id="cfFotoStatus"></div>' +
 
     '<label class="cf-label">Notas (opcional)</label>' +
     '<textarea class="cf-input cf-textarea" id="cfNotas" placeholder="Cualquier detalle extra...">' + esc((c&&c.notas)||'') + '</textarea>' +
@@ -1237,6 +1233,12 @@ function compraProductoRowHtml(producto, cantidad, precioVenta, pedido, tipo){
         '<input type="number" step="0.01" class="cf-input cf-prod-pventa" placeholder="Precio venta c/u" value="' + esc(precioVenta||'') + '">' +
       '</div>' +
       '<div class="cf-prod-ganancia muted">Ponle un precio de venta para ver el ingreso</div>' +
+      '<details class="cf-prod-fotos-details">' +
+        '<summary>+ Fotos de este producto (opcional)</summary>' +
+        '<div class="cf-fotos-strip cf-prod-fotos-strip"></div>' +
+        '<label class="cf-file-btn cf-prod-foto-add">+ Agregar foto(s)<input type="file" accept="image/*" multiple hidden class="cf-prod-foto-input"></label>' +
+        '<div class="cf-foto-status cf-prod-foto-status"></div>' +
+      '</details>' +
     '</div>';
 }
 
@@ -1286,8 +1288,36 @@ function openCompraForm(c){
   wireCompraForm(c);
 }
 
+// Pinta una tira de miniaturas con botón × para borrar cada una.
+function renderFotosStripInto(container, fotos, onRemove){
+  container.innerHTML = fotos.map((url, idx) =>
+    '<div class="cf-foto-thumb"><img src="' + esc(url) + '"><button type="button" class="cf-foto-thumb-del" data-idx="' + idx + '">×</button></div>'
+  ).join('');
+  container.querySelectorAll('.cf-foto-thumb-del').forEach(btn => {
+    btn.addEventListener('click', () => onRemove(Number(btn.getAttribute('data-idx'))));
+  });
+}
+
+// Sube varias fotos UNA POR UNA (evita saturar Apps Script) y avisa el
+// progreso ("Subiendo foto 2 de 3..."). Si una falla, sigue con las demás.
+function uploadCompraFotosSecuencial(files, onStatus, onEachUrl){
+  let i = 0;
+  function siguiente(){
+    if(i >= files.length){ onStatus(''); return Promise.resolve(); }
+    const file = files[i];
+    onStatus('Subiendo foto ' + (i+1) + ' de ' + files.length + '…');
+    return uploadCompraFoto(file, () => {}).then(url => {
+      onEachUrl(url);
+      i++;
+      return siguiente();
+    }).catch(() => { i++; return siguiente(); });
+  }
+  return siguiente();
+}
+
 function wireCompraForm(c){
-  let fotoUrl = (c && c.fotoUrl) || '';
+  let fotos = (c && c.fotos) ? c.fotos.slice() : [];
+  const productFotos = new WeakMap(); // row -> array de URLs (fotos por producto, opcional)
   const estadoBox = document.getElementById('cfEstadoToggle');
   const productosWrap = document.getElementById('cfProductos');
   const estadoHint = document.getElementById('cfEstadoHint');
@@ -1318,6 +1348,33 @@ function wireCompraForm(c){
   }
   document.querySelectorAll('#cfProductos .cf-prod-row').forEach(wireProdTipo);
 
+  function renderProductFotos(row){
+    const arr = productFotos.get(row) || [];
+    renderFotosStripInto(row.querySelector('.cf-prod-fotos-strip'), arr, (idx) => {
+      arr.splice(idx, 1);
+      renderProductFotos(row);
+    });
+  }
+  function wireProdFotos(row, fotosIniciales){
+    productFotos.set(row, (fotosIniciales || []).slice());
+    renderProductFotos(row);
+    row.querySelector('.cf-prod-foto-input').addEventListener('change', (e) => {
+      const files = [...e.target.files];
+      if(!files.length) return;
+      const statusEl = row.querySelector('.cf-prod-foto-status');
+      uploadCompraFotosSecuencial(files, msg => { statusEl.textContent = msg; }, url => {
+        const arr = productFotos.get(row) || [];
+        arr.push(url);
+        productFotos.set(row, arr);
+        renderProductFotos(row);
+      });
+      e.target.value = '';
+    });
+  }
+  const initialRows = [...document.querySelectorAll('#cfProductos .cf-prod-row')];
+  const initialProductos = (c && c.productos) || [];
+  initialRows.forEach((row, idx) => wireProdFotos(row, initialProductos[idx] ? initialProductos[idx].fotos : []));
+
   function wireProdRemove(row){
     row.querySelector('.cf-prod-del').addEventListener('click', () => {
       const rows = document.querySelectorAll('#cfProductos .cf-prod-row');
@@ -1326,6 +1383,8 @@ function wireCompraForm(c){
         row.querySelector('.cf-prod-nombre').value='';
         row.querySelector('.cf-prod-cant').value='';
         row.querySelector('.cf-prod-pventa').value='';
+        productFotos.set(row, []);
+        renderProductFotos(row);
       }
       recalcCompraProyeccion();
     });
@@ -1346,6 +1405,7 @@ function wireCompraForm(c){
     wrap.appendChild(row);
     wireProdRemove(row);
     wireProdTipo(row);
+    wireProdFotos(row, []);
   });
 
   // "Ya lo pedí (todo)": marca/desmarca todos los checkboxes de un toque —
@@ -1357,16 +1417,23 @@ function wireCompraForm(c){
     boxes.forEach(b => { b.checked = marcarTodos; });
   });
 
+  function renderBlockFotos(){
+    renderFotosStripInto(document.getElementById('cfFotosStrip'), fotos, (idx) => {
+      fotos.splice(idx, 1);
+      renderBlockFotos();
+    });
+  }
+  renderBlockFotos();
+
   document.getElementById('cfFotoInput').addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if(!file) return;
+    const files = [...e.target.files];
+    if(!files.length) return;
     const statusEl = document.getElementById('cfFotoStatus');
-    uploadCompraFoto(file, (msg) => { statusEl.textContent = msg; })
-      .then(url => {
-        fotoUrl = url;
-        document.getElementById('cfFotoPreview').innerHTML = '<img src="' + esc(url) + '">';
-      })
-      .catch(() => {});
+    uploadCompraFotosSecuencial(files, msg => { statusEl.textContent = msg; }, url => {
+      fotos.push(url);
+      renderBlockFotos();
+    });
+    e.target.value = '';
   });
 
   document.getElementById('cfEliminar')?.addEventListener('click', () => {
@@ -1397,6 +1464,7 @@ function wireCompraForm(c){
         precioVenta: Number(row.querySelector('.cf-prod-pventa').value) || 0,
         pedido: row.querySelector('.cf-prod-pedido').checked,
         tipo,
+        fotos: productFotos.get(row) || [],
       };
     }).filter(p => p.producto);
 
@@ -1408,7 +1476,7 @@ function wireCompraForm(c){
       fechaFin: document.getElementById('cfFechaFin').value || null,
       precioTotal: Number(document.getElementById('cfPrecio').value) || 0,
       productos,
-      fotoUrl,
+      fotos,
       notas: document.getElementById('cfNotas').value.trim(),
       creadoEn: c ? c.creadoEn : null,
     };
