@@ -626,6 +626,7 @@ h1{
 }
 .compra-badge.nuevo{background:var(--accent-dim);color:var(--accent);}
 .compra-badge.restock{background:var(--chip);color:var(--muted);border:1px solid var(--line);}
+.compra-badge.ambos{background:transparent;color:var(--bone);border:1px solid var(--accent);}
 .compra-meta{font-size:11px;color:var(--muted);margin-top:3px;}
 .compra-pedido-ok{color:var(--ok);font-weight:700;}
 .compra-pedido-parcial{color:var(--accent);font-weight:700;}
@@ -650,7 +651,16 @@ h1{
 .cf-row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 .cf-row2 .cf-label{margin-top:0;}
 
+.cf-estado-hint{font-size:11px;color:var(--muted);margin:6px 0 0;}
 .cf-prod-header{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:14px 0 6px;}
+.cf-prod-tipo-row{display:none;margin:8px 0 0;}
+#cfProductos.ambos-mode .cf-prod-tipo-row{display:block;}
+.cf-prod-tipo-toggle{display:inline-flex;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:2px;}
+.cf-prod-tipo-toggle button{
+  background:transparent;border:none;color:var(--muted);
+  font-size:10px;font-weight:700;padding:5px 10px;border-radius:6px;cursor:pointer;
+}
+.cf-prod-tipo-toggle button.active{background:var(--accent);color:#fff;}
 .cf-mark-all-btn{
   background:none;border:1px solid var(--accent);color:var(--accent);
   font-size:10px;font-weight:700;padding:6px 10px;border-radius:8px;cursor:pointer;flex-shrink:0;

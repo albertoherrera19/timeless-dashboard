@@ -1080,20 +1080,25 @@ function renderCompras(){
         : nPedidos > 0 ? ' · <span class="compra-pedido-parcial">pedido ' + nPedidos + '/' + nProd + '</span>'
         : '';
     }
-    // Ganancia potencial si vende TODO lo del bloque (mismo criterio que en el
-    // formulario: costo unitario = precio total del bloque / unidades totales).
+    // Ganancia aproximada si vende TODO el bloque: ingreso total (venta ×
+    // cantidad de cada producto) menos el precio total del bloque, una sola
+    // vez (no se reparte por producto — no hay costo individual real).
     const ingresoPotencial = productos.reduce((s,p) => s + (Number(p.precioVenta)||0) * (Number(p.cantidad)||0), 0);
     const gananciaLinea = (c.precioTotal > 0 && ingresoPotencial > 0)
-      ? '<div class="compra-ganancia">Ganancia si vendes todo: <span class="mono ' + ((ingresoPotencial - c.precioTotal) < 0 ? 'neg':'ok') + '">S/ ' + fmt(ingresoPotencial - c.precioTotal) + '</span></div>'
+      ? '<div class="compra-ganancia">Ganancia aprox. si vendes todo: <span class="mono ' + ((ingresoPotencial - c.precioTotal) < 0 ? 'neg':'ok') + '">S/ ' + fmt(ingresoPotencial - c.precioTotal) + '</span></div>'
       : '';
+    const estadoCls = c.estado==='Restock' ? 'restock' : c.estado==='Ambos' ? 'ambos' : 'nuevo';
+    const nNuevo = productos.filter(p => p.tipo !== 'Restock').length;
+    const nRestock = productos.filter(p => p.tipo === 'Restock').length;
+    const desgloseTxt = (c.estado === 'Ambos' && nProd > 0) ? ' · ' + nNuevo + ' nuevo · ' + nRestock + ' restock' : '';
     return '<div class="compra-row" data-id="' + esc(c.id) + '">' +
         '<div class="compra-thumb">' + thumb + '</div>' +
         '<div class="compra-info">' +
           '<div class="compra-top-line">' +
             '<span class="compra-nombre">' + esc(c.nombre || '(sin nombre)') + '</span>' +
-            '<span class="compra-badge ' + (c.estado==='Restock'?'restock':'nuevo') + '">' + esc(c.estado||'Nuevo') + '</span>' +
+            '<span class="compra-badge ' + estadoCls + '">' + esc(c.estado||'Ambos') + '</span>' +
           '</div>' +
-          '<div class="compra-meta">' + esc(fmtRangoFechas(c)) + ' · ' + nProd + ' producto(s)' + (unidades?' · ~' + fmt0(unidades) + ' u':'') + pedidoTxt + '</div>' +
+          '<div class="compra-meta">' + esc(fmtRangoFechas(c)) + ' · ' + nProd + ' producto(s)' + (unidades?' · ~' + fmt0(unidades) + ' u':'') + desgloseTxt + pedidoTxt + '</div>' +
           gananciaLinea +
         '</div>' +
         '<div class="compra-precio mono">S/ ' + fmt(c.precioTotal||0) + '</div>' +
@@ -1154,11 +1159,11 @@ function uploadCompraFoto(file, onStatus){
 
 function renderCompraForm(c){
   const editando = !!c;
-  const productos = (c && c.productos && c.productos.length) ? c.productos : [{producto:'', cantidad:'', precioVenta:'', pedido:false}];
-  const fRows = productos.map(p => compraProductoRowHtml(p.producto, p.cantidad, p.precioVenta, p.pedido)).join('');
+  const productos = (c && c.productos && c.productos.length) ? c.productos : [{producto:'', cantidad:'', precioVenta:'', pedido:false, tipo:'Nuevo'}];
+  const fRows = productos.map(p => compraProductoRowHtml(p.producto, p.cantidad, p.precioVenta, p.pedido, p.tipo)).join('');
   const fIni = c && c.fechaInicio ? new Date(c.fechaInicio).toISOString().slice(0,10) : '';
   const fFin = c && c.fechaFin ? new Date(c.fechaFin).toISOString().slice(0,10) : '';
-  const estado = (c && c.estado) || 'Nuevo';
+  const estado = (c && c.estado) || 'Ambos';
   const fotoUrl = (c && c.fotoUrl) || '';
 
   return '<div class="compra-form">' +
@@ -1167,9 +1172,11 @@ function renderCompraForm(c){
 
     '<label class="cf-label">Estado</label>' +
     '<div class="util-toggle" id="cfEstadoToggle">' +
+      '<button type="button" data-v="Ambos" class="' + (estado==='Ambos'?'active':'') + '">Ambos</button>' +
       '<button type="button" data-v="Nuevo" class="' + (estado==='Nuevo'?'active':'') + '">Nuevo</button>' +
       '<button type="button" data-v="Restock" class="' + (estado==='Restock'?'active':'') + '">Restock</button>' +
     '</div>' +
+    '<div class="cf-estado-hint" id="cfEstadoHint">' + (estado==='Ambos' ? 'Marca producto por producto si es nuevo o restock ▾' : 'Todos los productos de este bloque son ' + esc(estado.toLowerCase())) + '</div>' +
 
     '<div class="cf-row2">' +
       '<div><label class="cf-label">Fecha inicio (opcional)</label><input type="date" class="cf-input" id="cfFechaIni" value="' + fIni + '"></div>' +
@@ -1208,7 +1215,8 @@ function renderCompraForm(c){
   '</div>';
 }
 
-function compraProductoRowHtml(producto, cantidad, precioVenta, pedido){
+function compraProductoRowHtml(producto, cantidad, precioVenta, pedido, tipo){
+  tipo = tipo || 'Nuevo';
   return '<div class="cf-prod-row">' +
       '<div class="cf-prod-line1">' +
         '<label class="cf-prod-check" title="Ya lo pedí">' +
@@ -1218,56 +1226,59 @@ function compraProductoRowHtml(producto, cantidad, precioVenta, pedido){
         '<input type="text" class="cf-input cf-prod-nombre" placeholder="Producto" value="' + esc(producto||'') + '">' +
         '<button type="button" class="cf-prod-del">×</button>' +
       '</div>' +
+      '<div class="cf-prod-tipo-row">' +
+        '<div class="cf-prod-tipo-toggle">' +
+          '<button type="button" data-v="Nuevo" class="' + (tipo==='Nuevo'?'active':'') + '">Nuevo</button>' +
+          '<button type="button" data-v="Restock" class="' + (tipo==='Restock'?'active':'') + '">Restock</button>' +
+        '</div>' +
+      '</div>' +
       '<div class="cf-prod-line2">' +
         '<input type="number" class="cf-input cf-prod-cant" placeholder="Cantidad" value="' + esc(cantidad||'') + '">' +
         '<input type="number" step="0.01" class="cf-input cf-prod-pventa" placeholder="Precio venta c/u" value="' + esc(precioVenta||'') + '">' +
       '</div>' +
-      '<div class="cf-prod-ganancia muted">Falta precio total del bloque</div>' +
+      '<div class="cf-prod-ganancia muted">Ponle un precio de venta para ver el ingreso</div>' +
     '</div>';
 }
 
-// Costo unitario implícito: como se compra el bloque EN CONJUNTO (para
-// ahorrar envío), no hay costo por producto — se reparte el precio total del
-// bloque entre TODAS las unidades por igual. Ganancia unitaria de un producto
-// = su precio de venta − ese costo unitario implícito.
+// Ingreso simple, SIN restar inversión por producto (no tenemos el costo de
+// cada producto individual, solo el precio total del bloque completo — restar
+// aquí daría un número inventado). Por producto: ingreso por unidad y si
+// vendes todas las que pediste. A nivel de bloque, si quieres una idea
+// aproximada, se resta el precio total del bloque UNA sola vez del ingreso
+// total (eso sí es un número real, no repartido por producto).
 function recalcCompraProyeccion(){
   const rows = [...document.querySelectorAll('#cfProductos .cf-prod-row')];
   const precioTotal = Number(document.getElementById('cfPrecio').value) || 0;
-  const datos = rows.map(row => ({
-    row,
-    cantidad: Number(row.querySelector('.cf-prod-cant').value) || 0,
-    precioVenta: Number(row.querySelector('.cf-prod-pventa').value) || 0,
-  }));
-  const totalUnidades = datos.reduce((s,d) => s + d.cantidad, 0);
-  const costoUnit = (precioTotal > 0 && totalUnidades > 0) ? precioTotal / totalUnidades : 0;
-
   let ingresoTotal = 0;
-  datos.forEach(d => {
-    const g = d.row.querySelector('.cf-prod-ganancia');
-    if(costoUnit === 0){
-      g.textContent = precioTotal === 0 ? 'Falta precio total del bloque' : 'Falta cantidad';
-      g.className = 'cf-prod-ganancia muted';
-    } else if(d.precioVenta === 0){
-      g.textContent = 'Falta precio de venta';
+
+  rows.forEach(row => {
+    const cantidad = Number(row.querySelector('.cf-prod-cant').value) || 0;
+    const precioVenta = Number(row.querySelector('.cf-prod-pventa').value) || 0;
+    const ingresoLinea = precioVenta * cantidad;
+    ingresoTotal += ingresoLinea;
+    const g = row.querySelector('.cf-prod-ganancia');
+    if(precioVenta === 0){
+      g.textContent = 'Ponle un precio de venta para ver el ingreso';
       g.className = 'cf-prod-ganancia muted';
     } else {
-      const gu = d.precioVenta - costoUnit;
-      g.textContent = 'Ganancia: S/ ' + fmt(gu) + ' c/u';
-      g.className = 'cf-prod-ganancia' + (gu < 0 ? ' neg' : ' ok');
+      g.textContent = 'Ingreso por unidad: S/ ' + fmt(precioVenta) +
+        (cantidad > 0 ? ' · si vendes las ' + fmt0(cantidad) + ': S/ ' + fmt(ingresoLinea) : '');
+      g.className = 'cf-prod-ganancia ok';
     }
-    ingresoTotal += d.precioVenta * d.cantidad;
   });
 
   const proy = document.getElementById('cfProyeccion');
   if(!proy) return;
-  if(ingresoTotal === 0 || precioTotal === 0){
-    proy.innerHTML = '<div class="cf-proy-empty">Pon el precio de venta de cada producto y el precio total del bloque para ver cuánto ganarías si vendes todo.</div>';
+  if(ingresoTotal === 0){
+    proy.innerHTML = '<div class="cf-proy-empty">Pon el precio de venta de cada producto para ver cuánto ingresarías vendiendo todo.</div>';
     return;
   }
-  const gananciaTotal = ingresoTotal - precioTotal;
-  proy.innerHTML =
-    '<div class="cf-proy-row"><span>Si vendes TODO lo de este bloque, ingresos</span><span class="mono">S/ ' + fmt(ingresoTotal) + '</span></div>' +
-    '<div class="cf-proy-row total"><span>Ganancia total</span><span class="mono ' + (gananciaTotal<0?'neg':'ok') + '">S/ ' + fmt(gananciaTotal) + '</span></div>';
+  let html = '<div class="cf-proy-row"><span>Si vendes TODO lo de este bloque, ingresos</span><span class="mono">S/ ' + fmt(ingresoTotal) + '</span></div>';
+  if(precioTotal > 0){
+    const gananciaAprox = ingresoTotal - precioTotal;
+    html += '<div class="cf-proy-row total"><span>Ganancia aprox. si vendes todo (idea general, no por producto)</span><span class="mono ' + (gananciaAprox<0?'neg':'ok') + '">S/ ' + fmt(gananciaAprox) + '</span></div>';
+  }
+  proy.innerHTML = html;
 }
 
 function openCompraForm(c){
@@ -1278,13 +1289,34 @@ function openCompraForm(c){
 function wireCompraForm(c){
   let fotoUrl = (c && c.fotoUrl) || '';
   const estadoBox = document.getElementById('cfEstadoToggle');
-  let estado = (c && c.estado) || 'Nuevo';
+  const productosWrap = document.getElementById('cfProductos');
+  const estadoHint = document.getElementById('cfEstadoHint');
+  let estado = (c && c.estado) || 'Ambos';
+
+  function setAmbosMode(){
+    productosWrap.classList.toggle('ambos-mode', estado === 'Ambos');
+    estadoHint.textContent = estado === 'Ambos'
+      ? 'Marca producto por producto si es nuevo o restock ▾'
+      : 'Todos los productos de este bloque son ' + estado.toLowerCase();
+  }
+  setAmbosMode();
+
   estadoBox.querySelectorAll('button').forEach(b => {
     b.addEventListener('click', () => {
       estado = b.getAttribute('data-v');
       estadoBox.querySelectorAll('button').forEach(x => x.classList.toggle('active', x===b));
+      setAmbosMode();
     });
   });
+
+  function wireProdTipo(row){
+    row.querySelectorAll('.cf-prod-tipo-toggle button').forEach(b => {
+      b.addEventListener('click', () => {
+        row.querySelectorAll('.cf-prod-tipo-toggle button').forEach(x => x.classList.toggle('active', x===b));
+      });
+    });
+  }
+  document.querySelectorAll('#cfProductos .cf-prod-row').forEach(wireProdTipo);
 
   function wireProdRemove(row){
     row.querySelector('.cf-prod-del').addEventListener('click', () => {
@@ -1309,10 +1341,11 @@ function wireCompraForm(c){
   document.getElementById('cfAddProducto').addEventListener('click', () => {
     const wrap = document.getElementById('cfProductos');
     const div = document.createElement('div');
-    div.innerHTML = compraProductoRowHtml('', '', '', false);
+    div.innerHTML = compraProductoRowHtml('', '', '', false, 'Nuevo');
     const row = div.firstElementChild;
     wrap.appendChild(row);
     wireProdRemove(row);
+    wireProdTipo(row);
   });
 
   // "Ya lo pedí (todo)": marca/desmarca todos los checkboxes de un toque —
@@ -1352,12 +1385,20 @@ function wireCompraForm(c){
   document.getElementById('cfGuardar').addEventListener('click', () => {
     const nombre = document.getElementById('cfNombre').value.trim();
     if(!nombre){ document.getElementById('cfSaveStatus').textContent = '⚠ Ponle un nombre al bloque.'; return; }
-    const productos = [...document.querySelectorAll('#cfProductos .cf-prod-row')].map(row => ({
-      producto: row.querySelector('.cf-prod-nombre').value.trim(),
-      cantidad: Number(row.querySelector('.cf-prod-cant').value) || 0,
-      precioVenta: Number(row.querySelector('.cf-prod-pventa').value) || 0,
-      pedido: row.querySelector('.cf-prod-pedido').checked,
-    })).filter(p => p.producto);
+    const productos = [...document.querySelectorAll('#cfProductos .cf-prod-row')].map(row => {
+      // Si el bloque NO es "Ambos", todos sus productos son del mismo tipo
+      // (el propio estado del bloque). Si es "Ambos", cada producto lleva su
+      // propio tipo marcado con el casillero Nuevo/Restock de su fila.
+      const tipoBtn = row.querySelector('.cf-prod-tipo-toggle button.active');
+      const tipo = estado === 'Ambos' ? (tipoBtn ? tipoBtn.getAttribute('data-v') : 'Nuevo') : estado;
+      return {
+        producto: row.querySelector('.cf-prod-nombre').value.trim(),
+        cantidad: Number(row.querySelector('.cf-prod-cant').value) || 0,
+        precioVenta: Number(row.querySelector('.cf-prod-pventa').value) || 0,
+        pedido: row.querySelector('.cf-prod-pedido').checked,
+        tipo,
+      };
+    }).filter(p => p.producto);
 
     const payload = {
       id: c ? c.id : null,
