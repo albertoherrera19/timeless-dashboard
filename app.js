@@ -6,6 +6,7 @@
 const THEMES = {
   negro:   {label:'Negro',   bg:'#141414', card:'#1c1c1c', line:'#2c2c2c', bone:'#f2f0ea', muted:'#8a8680', accent:'#e8442c', accentDim:'#5c2016', chip:'#111111', swatch:'#141414'},
   azul:    {label:'Azul',    bg:'#0d1420', card:'#141d2b', line:'#233047', bone:'#eef3fa', muted:'#7c93ad', accent:'#2f7dd8', accentDim:'#173a63', chip:'#0f1621', swatch:'#2f7dd8'},
+  marino:  {label:'Azul marino', bg:'#0a1128', card:'#101a3d', line:'#1c2a56', bone:'#eef1fa', muted:'#7e8bb3', accent:'#4a6da3', accentDim:'#1f2f52', chip:'#0d1730', swatch:'#16274f'},
   celeste: {label:'Celeste', bg:'#0c1a1f', card:'#12242b', line:'#1f3843', bone:'#eaf6f9', muted:'#7fa8b3', accent:'#22b8e8', accentDim:'#0f4a5c', chip:'#0e1c21', swatch:'#22b8e8'},
   morado:  {label:'Morado',  bg:'#160f22', card:'#201533', line:'#33234c', bone:'#f2ecfa', muted:'#9c85bd', accent:'#9b4de0', accentDim:'#3f2064', chip:'#180f24', swatch:'#9b4de0'},
   rojo:    {label:'Rojo',    bg:'#1c0f0f', card:'#2a1414', line:'#432020', bone:'#faeeee', muted:'#c08a8a', accent:'#e8302f', accentDim:'#5c1414', chip:'#1e1010', swatch:'#e8302f'},
@@ -1079,6 +1080,12 @@ function renderCompras(){
         : nPedidos > 0 ? ' · <span class="compra-pedido-parcial">pedido ' + nPedidos + '/' + nProd + '</span>'
         : '';
     }
+    // Ganancia potencial si vende TODO lo del bloque (mismo criterio que en el
+    // formulario: costo unitario = precio total del bloque / unidades totales).
+    const ingresoPotencial = productos.reduce((s,p) => s + (Number(p.precioVenta)||0) * (Number(p.cantidad)||0), 0);
+    const gananciaLinea = (c.precioTotal > 0 && ingresoPotencial > 0)
+      ? '<div class="compra-ganancia">Ganancia si vendes todo: <span class="mono ' + ((ingresoPotencial - c.precioTotal) < 0 ? 'neg':'ok') + '">S/ ' + fmt(ingresoPotencial - c.precioTotal) + '</span></div>'
+      : '';
     return '<div class="compra-row" data-id="' + esc(c.id) + '">' +
         '<div class="compra-thumb">' + thumb + '</div>' +
         '<div class="compra-info">' +
@@ -1087,6 +1094,7 @@ function renderCompras(){
             '<span class="compra-badge ' + (c.estado==='Restock'?'restock':'nuevo') + '">' + esc(c.estado||'Nuevo') + '</span>' +
           '</div>' +
           '<div class="compra-meta">' + esc(fmtRangoFechas(c)) + ' · ' + nProd + ' producto(s)' + (unidades?' · ~' + fmt0(unidades) + ' u':'') + pedidoTxt + '</div>' +
+          gananciaLinea +
         '</div>' +
         '<div class="compra-precio mono">S/ ' + fmt(c.precioTotal||0) + '</div>' +
       '</div>';
@@ -1146,8 +1154,8 @@ function uploadCompraFoto(file, onStatus){
 
 function renderCompraForm(c){
   const editando = !!c;
-  const productos = (c && c.productos && c.productos.length) ? c.productos : [{producto:'', cantidad:'', pedido:false}];
-  const fRows = productos.map(p => compraProductoRowHtml(p.producto, p.cantidad, p.pedido)).join('');
+  const productos = (c && c.productos && c.productos.length) ? c.productos : [{producto:'', cantidad:'', precioVenta:'', pedido:false}];
+  const fRows = productos.map(p => compraProductoRowHtml(p.producto, p.cantidad, p.precioVenta, p.pedido)).join('');
   const fIni = c && c.fechaInicio ? new Date(c.fechaInicio).toISOString().slice(0,10) : '';
   const fFin = c && c.fechaFin ? new Date(c.fechaFin).toISOString().slice(0,10) : '';
   const estado = (c && c.estado) || 'Nuevo';
@@ -1178,6 +1186,8 @@ function renderCompraForm(c){
     '<div id="cfProductos">' + fRows + '</div>' +
     '<button type="button" class="cf-add-btn" id="cfAddProducto">+ Agregar producto</button>' +
 
+    '<div class="cf-proyeccion" id="cfProyeccion"></div>' +
+
     '<label class="cf-label">Foto</label>' +
     '<div class="cf-foto-row">' +
       '<div class="cf-foto-preview" id="cfFotoPreview">' + (fotoUrl ? '<img src="' + esc(fotoUrl) + '">' : '<span>Sin foto</span>') + '</div>' +
@@ -1198,16 +1208,66 @@ function renderCompraForm(c){
   '</div>';
 }
 
-function compraProductoRowHtml(producto, cantidad, pedido){
+function compraProductoRowHtml(producto, cantidad, precioVenta, pedido){
   return '<div class="cf-prod-row">' +
-      '<label class="cf-prod-check" title="Ya lo pedí">' +
-        '<input type="checkbox" class="cf-prod-pedido"' + (pedido ? ' checked' : '') + '>' +
-        '<span></span>' +
-      '</label>' +
-      '<input type="text" class="cf-input cf-prod-nombre" placeholder="Producto" value="' + esc(producto||'') + '">' +
-      '<input type="number" class="cf-input cf-prod-cant" placeholder="Cant." value="' + esc(cantidad||'') + '">' +
-      '<button type="button" class="cf-prod-del">×</button>' +
+      '<div class="cf-prod-line1">' +
+        '<label class="cf-prod-check" title="Ya lo pedí">' +
+          '<input type="checkbox" class="cf-prod-pedido"' + (pedido ? ' checked' : '') + '>' +
+          '<span></span>' +
+        '</label>' +
+        '<input type="text" class="cf-input cf-prod-nombre" placeholder="Producto" value="' + esc(producto||'') + '">' +
+        '<button type="button" class="cf-prod-del">×</button>' +
+      '</div>' +
+      '<div class="cf-prod-line2">' +
+        '<input type="number" class="cf-input cf-prod-cant" placeholder="Cantidad" value="' + esc(cantidad||'') + '">' +
+        '<input type="number" step="0.01" class="cf-input cf-prod-pventa" placeholder="Precio venta c/u" value="' + esc(precioVenta||'') + '">' +
+      '</div>' +
+      '<div class="cf-prod-ganancia muted">Falta precio total del bloque</div>' +
     '</div>';
+}
+
+// Costo unitario implícito: como se compra el bloque EN CONJUNTO (para
+// ahorrar envío), no hay costo por producto — se reparte el precio total del
+// bloque entre TODAS las unidades por igual. Ganancia unitaria de un producto
+// = su precio de venta − ese costo unitario implícito.
+function recalcCompraProyeccion(){
+  const rows = [...document.querySelectorAll('#cfProductos .cf-prod-row')];
+  const precioTotal = Number(document.getElementById('cfPrecio').value) || 0;
+  const datos = rows.map(row => ({
+    row,
+    cantidad: Number(row.querySelector('.cf-prod-cant').value) || 0,
+    precioVenta: Number(row.querySelector('.cf-prod-pventa').value) || 0,
+  }));
+  const totalUnidades = datos.reduce((s,d) => s + d.cantidad, 0);
+  const costoUnit = (precioTotal > 0 && totalUnidades > 0) ? precioTotal / totalUnidades : 0;
+
+  let ingresoTotal = 0;
+  datos.forEach(d => {
+    const g = d.row.querySelector('.cf-prod-ganancia');
+    if(costoUnit === 0){
+      g.textContent = precioTotal === 0 ? 'Falta precio total del bloque' : 'Falta cantidad';
+      g.className = 'cf-prod-ganancia muted';
+    } else if(d.precioVenta === 0){
+      g.textContent = 'Falta precio de venta';
+      g.className = 'cf-prod-ganancia muted';
+    } else {
+      const gu = d.precioVenta - costoUnit;
+      g.textContent = 'Ganancia: S/ ' + fmt(gu) + ' c/u';
+      g.className = 'cf-prod-ganancia' + (gu < 0 ? ' neg' : ' ok');
+    }
+    ingresoTotal += d.precioVenta * d.cantidad;
+  });
+
+  const proy = document.getElementById('cfProyeccion');
+  if(!proy) return;
+  if(ingresoTotal === 0 || precioTotal === 0){
+    proy.innerHTML = '<div class="cf-proy-empty">Pon el precio de venta de cada producto y el precio total del bloque para ver cuánto ganarías si vendes todo.</div>';
+    return;
+  }
+  const gananciaTotal = ingresoTotal - precioTotal;
+  proy.innerHTML =
+    '<div class="cf-proy-row"><span>Si vendes TODO lo de este bloque, ingresos</span><span class="mono">S/ ' + fmt(ingresoTotal) + '</span></div>' +
+    '<div class="cf-proy-row total"><span>Ganancia total</span><span class="mono ' + (gananciaTotal<0?'neg':'ok') + '">S/ ' + fmt(gananciaTotal) + '</span></div>';
 }
 
 function openCompraForm(c){
@@ -1230,15 +1290,26 @@ function wireCompraForm(c){
     row.querySelector('.cf-prod-del').addEventListener('click', () => {
       const rows = document.querySelectorAll('#cfProductos .cf-prod-row');
       if(rows.length > 1) row.remove();
-      else { row.querySelector('.cf-prod-nombre').value=''; row.querySelector('.cf-prod-cant').value=''; }
+      else {
+        row.querySelector('.cf-prod-nombre').value='';
+        row.querySelector('.cf-prod-cant').value='';
+        row.querySelector('.cf-prod-pventa').value='';
+      }
+      recalcCompraProyeccion();
     });
   }
   document.querySelectorAll('#cfProductos .cf-prod-row').forEach(wireProdRemove);
 
+  // Recalcula ganancia unitaria/total en vivo mientras Alberto escribe
+  // cantidades, precios de venta, o el precio total del bloque.
+  document.getElementById('cfProductos').addEventListener('input', recalcCompraProyeccion);
+  document.getElementById('cfPrecio').addEventListener('input', recalcCompraProyeccion);
+  recalcCompraProyeccion();
+
   document.getElementById('cfAddProducto').addEventListener('click', () => {
     const wrap = document.getElementById('cfProductos');
     const div = document.createElement('div');
-    div.innerHTML = compraProductoRowHtml('', '', false);
+    div.innerHTML = compraProductoRowHtml('', '', '', false);
     const row = div.firstElementChild;
     wrap.appendChild(row);
     wireProdRemove(row);
@@ -1284,6 +1355,7 @@ function wireCompraForm(c){
     const productos = [...document.querySelectorAll('#cfProductos .cf-prod-row')].map(row => ({
       producto: row.querySelector('.cf-prod-nombre').value.trim(),
       cantidad: Number(row.querySelector('.cf-prod-cant').value) || 0,
+      precioVenta: Number(row.querySelector('.cf-prod-pventa').value) || 0,
       pedido: row.querySelector('.cf-prod-pedido').checked,
     })).filter(p => p.producto);
 

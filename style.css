@@ -629,6 +629,9 @@ h1{
 .compra-meta{font-size:11px;color:var(--muted);margin-top:3px;}
 .compra-pedido-ok{color:var(--ok);font-weight:700;}
 .compra-pedido-parcial{color:var(--accent);font-weight:700;}
+.compra-ganancia{font-size:11px;color:var(--muted);margin-top:2px;}
+.compra-ganancia .mono.ok{color:var(--ok);font-weight:700;}
+.compra-ganancia .mono.neg{color:var(--bad);font-weight:700;}
 .compra-precio{font-weight:800;font-size:14px;flex-shrink:0;}
 
 /* Formulario de bloque de compra (dentro de la vista de pantalla completa) */
@@ -653,9 +656,18 @@ h1{
   font-size:10px;font-weight:700;padding:6px 10px;border-radius:8px;cursor:pointer;flex-shrink:0;
   white-space:nowrap;
 }
-.cf-prod-row{display:flex;gap:8px;margin-bottom:8px;align-items:center;}
-.cf-prod-row .cf-prod-nombre{flex:1;}
-.cf-prod-row .cf-prod-cant{width:70px;flex-shrink:0;}
+.cf-prod-row{
+  display:flex;flex-direction:column;gap:8px;margin-bottom:10px;
+  border:1px solid var(--line);border-radius:12px;padding:10px;
+}
+.cf-prod-line1{display:flex;gap:8px;align-items:center;}
+.cf-prod-line1 .cf-prod-nombre{flex:1;}
+.cf-prod-line2{display:flex;gap:8px;}
+.cf-prod-line2 .cf-input{flex:1;min-width:0;}
+.cf-prod-ganancia{font-size:11px;font-weight:700;}
+.cf-prod-ganancia.muted{color:var(--muted);font-weight:400;}
+.cf-prod-ganancia.ok{color:var(--ok);}
+.cf-prod-ganancia.neg{color:var(--bad);}
 .cf-prod-check{
   width:36px;height:36px;border-radius:9px;flex-shrink:0;cursor:pointer;
   display:flex;align-items:center;justify-content:center;
@@ -679,6 +691,16 @@ h1{
   align-self:flex-start;background:none;border:1px dashed var(--line);color:var(--accent);
   font-size:12px;font-weight:700;padding:8px 14px;border-radius:9px;cursor:pointer;margin-top:2px;
 }
+
+.cf-proyeccion{
+  margin-top:16px;background:var(--chip);border:1px solid var(--line);
+  border-radius:12px;padding:12px 14px;
+}
+.cf-proy-empty{font-size:12px;color:var(--muted);line-height:1.5;}
+.cf-proy-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:12.5px;color:var(--muted);}
+.cf-proy-row.total{border-top:1px dashed var(--line);margin-top:4px;padding-top:9px;font-weight:800;color:var(--bone);font-size:14px;}
+.cf-proy-row .mono.ok{color:var(--ok);}
+.cf-proy-row .mono.neg{color:var(--bad);}
 
 .cf-foto-row{display:flex;gap:14px;align-items:center;}
 .cf-foto-preview{
