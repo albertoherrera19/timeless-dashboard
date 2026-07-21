@@ -1066,11 +1066,19 @@ function renderCompras(){
   }
   const ordenados = compras.slice().sort((a,b) => new Date(b.creadoEn||0) - new Date(a.creadoEn||0));
   box.innerHTML = ordenados.map(c => {
-    const unidades = (c.productos||[]).reduce((s,p) => s + (Number(p.cantidad)||0), 0);
-    const nProd = (c.productos||[]).length;
+    const productos = c.productos || [];
+    const unidades = productos.reduce((s,p) => s + (Number(p.cantidad)||0), 0);
+    const nProd = productos.length;
+    const nPedidos = productos.filter(p => p.pedido).length;
     const thumb = c.fotoUrl
       ? '<img src="' + esc(c.fotoUrl) + '" alt="">'
       : '<div class="compra-thumb-empty">📦</div>';
+    let pedidoTxt = '';
+    if(nProd > 0){
+      pedidoTxt = nPedidos === nProd ? ' · <span class="compra-pedido-ok">✓ todo pedido</span>'
+        : nPedidos > 0 ? ' · <span class="compra-pedido-parcial">pedido ' + nPedidos + '/' + nProd + '</span>'
+        : '';
+    }
     return '<div class="compra-row" data-id="' + esc(c.id) + '">' +
         '<div class="compra-thumb">' + thumb + '</div>' +
         '<div class="compra-info">' +
@@ -1078,7 +1086,7 @@ function renderCompras(){
             '<span class="compra-nombre">' + esc(c.nombre || '(sin nombre)') + '</span>' +
             '<span class="compra-badge ' + (c.estado==='Restock'?'restock':'nuevo') + '">' + esc(c.estado||'Nuevo') + '</span>' +
           '</div>' +
-          '<div class="compra-meta">' + esc(fmtRangoFechas(c)) + ' · ' + nProd + ' producto(s)' + (unidades?' · ~' + fmt0(unidades) + ' u':'') + '</div>' +
+          '<div class="compra-meta">' + esc(fmtRangoFechas(c)) + ' · ' + nProd + ' producto(s)' + (unidades?' · ~' + fmt0(unidades) + ' u':'') + pedidoTxt + '</div>' +
         '</div>' +
         '<div class="compra-precio mono">S/ ' + fmt(c.precioTotal||0) + '</div>' +
       '</div>';
@@ -1138,8 +1146,8 @@ function uploadCompraFoto(file, onStatus){
 
 function renderCompraForm(c){
   const editando = !!c;
-  const productos = (c && c.productos && c.productos.length) ? c.productos : [{producto:'', cantidad:''}];
-  const fRows = productos.map(p => compraProductoRowHtml(p.producto, p.cantidad)).join('');
+  const productos = (c && c.productos && c.productos.length) ? c.productos : [{producto:'', cantidad:'', pedido:false}];
+  const fRows = productos.map(p => compraProductoRowHtml(p.producto, p.cantidad, p.pedido)).join('');
   const fIni = c && c.fechaInicio ? new Date(c.fechaInicio).toISOString().slice(0,10) : '';
   const fFin = c && c.fechaFin ? new Date(c.fechaFin).toISOString().slice(0,10) : '';
   const estado = (c && c.estado) || 'Nuevo';
@@ -1163,7 +1171,10 @@ function renderCompraForm(c){
     '<label class="cf-label">Precio total del bloque (lo que pagas en conjunto, no por producto)</label>' +
     '<input type="number" step="0.01" class="cf-input" id="cfPrecio" placeholder="0.00" value="' + ((c&&c.precioTotal)||'') + '">' +
 
-    '<label class="cf-label">Productos y cantidades aprox.</label>' +
+    '<div class="cf-prod-header">' +
+      '<label class="cf-label" style="margin:0;">Productos y cantidades aprox.</label>' +
+      '<button type="button" class="cf-mark-all-btn" id="cfMarcarTodo">Ya lo pedí (todo)</button>' +
+    '</div>' +
     '<div id="cfProductos">' + fRows + '</div>' +
     '<button type="button" class="cf-add-btn" id="cfAddProducto">+ Agregar producto</button>' +
 
@@ -1187,8 +1198,12 @@ function renderCompraForm(c){
   '</div>';
 }
 
-function compraProductoRowHtml(producto, cantidad){
+function compraProductoRowHtml(producto, cantidad, pedido){
   return '<div class="cf-prod-row">' +
+      '<label class="cf-prod-check" title="Ya lo pedí">' +
+        '<input type="checkbox" class="cf-prod-pedido"' + (pedido ? ' checked' : '') + '>' +
+        '<span></span>' +
+      '</label>' +
       '<input type="text" class="cf-input cf-prod-nombre" placeholder="Producto" value="' + esc(producto||'') + '">' +
       '<input type="number" class="cf-input cf-prod-cant" placeholder="Cant." value="' + esc(cantidad||'') + '">' +
       '<button type="button" class="cf-prod-del">×</button>' +
@@ -1223,10 +1238,19 @@ function wireCompraForm(c){
   document.getElementById('cfAddProducto').addEventListener('click', () => {
     const wrap = document.getElementById('cfProductos');
     const div = document.createElement('div');
-    div.innerHTML = compraProductoRowHtml('', '');
+    div.innerHTML = compraProductoRowHtml('', '', false);
     const row = div.firstElementChild;
     wrap.appendChild(row);
     wireProdRemove(row);
+  });
+
+  // "Ya lo pedí (todo)": marca/desmarca todos los checkboxes de un toque —
+  // para el caso normal donde pediste el bloque completo. Si solo pediste
+  // algunos productos, se destildan uno por uno en cada fila.
+  document.getElementById('cfMarcarTodo').addEventListener('click', () => {
+    const boxes = document.querySelectorAll('#cfProductos .cf-prod-pedido');
+    const marcarTodos = ![...boxes].every(b => b.checked); // si ya estaban todos, esta vez desmarca
+    boxes.forEach(b => { b.checked = marcarTodos; });
   });
 
   document.getElementById('cfFotoInput').addEventListener('change', (e) => {
@@ -1260,6 +1284,7 @@ function wireCompraForm(c){
     const productos = [...document.querySelectorAll('#cfProductos .cf-prod-row')].map(row => ({
       producto: row.querySelector('.cf-prod-nombre').value.trim(),
       cantidad: Number(row.querySelector('.cf-prod-cant').value) || 0,
+      pedido: row.querySelector('.cf-prod-pedido').checked,
     })).filter(p => p.producto);
 
     const payload = {
