@@ -364,6 +364,7 @@ function renderAll(data, missing){
   buildMonthOptions(ventas, gastos);
   renderHero(ventas, gastos, data, selectedMonthKey);
   renderProyeccion(ventas, stocks, data, selectedMonthKey);
+  renderStock(stocks, data);
   renderMeses(ventas, gastos, data);
   renderTop(stocks, data);
   renderRecent(data);
@@ -834,21 +835,37 @@ function renderPendientes(stocks, data){
   const rows = getPendientesConValor(stocks, data);
   if(rows.length === 0){ box.innerHTML = ''; return; }
 
-  const totalPorLlegar = rows.filter(r => !r.llego).reduce((s,r) => s + r.invertido, 0);
+  // Solo los que AÚN no llegan salen como "por llegar". Los que ya llegaron
+  // (tienen stock > 0 en Stocks) desaparecen de la lista; solo queda una nota.
+  const activos = rows.filter(r => !r.llego);
+  const llegados = rows.filter(r => r.llego);
+  const totalPorLlegar = activos.reduce((s,r) => s + r.invertido, 0);
 
-  box.innerHTML =
-    '<div class="pend-head">' +
-      '<span>📦 Dinero en pedidos por llegar · Invertido</span>' +
-      '<span class="mono accent">S/ ' + fmt(totalPorLlegar) + '</span>' +
-    '</div>' +
-    rows.map(r =>
-      '<div class="pend-row' + (r.llego ? ' llego' : '') + '">' +
-        '<span class="pend-name">' + esc(r.producto) + '</span>' +
-        '<span class="pend-amt mono">' + (r.llego ? '✓ llegó' : 'S/ ' + fmt(r.invertido)) + '</span>' +
-      '</div>'
-    ).join('') +
-    '<div class="pend-hint">Toca para ver Invertido, Ingresos y Ganancia neta por separado ▸</div>';
+  let html;
+  if(activos.length === 0){
+    html =
+      '<div class="pend-head"><span>📦 Pedidos por llegar</span><span class="mono accent">todo llegó ✓</span></div>' +
+      '<div class="pend-allarrived">Los ' + llegados.length + ' pedidos que tenías pendientes ya llegaron y están en tu stock.</div>';
+  } else {
+    html =
+      '<div class="pend-head">' +
+        '<span>📦 Dinero en pedidos por llegar · Invertido</span>' +
+        '<span class="mono accent">S/ ' + fmt(totalPorLlegar) + '</span>' +
+      '</div>' +
+      activos.map(r =>
+        '<div class="pend-row">' +
+          '<span class="pend-name">' + esc(r.producto) + '</span>' +
+          '<span class="pend-amt mono">S/ ' + fmt(r.invertido) + '</span>' +
+        '</div>'
+      ).join('');
+    if(llegados.length > 0){
+      html += '<div class="pend-arrived-note">✓ ' + llegados.length + ' ' +
+        (llegados.length === 1 ? 'pedido ya llegó' : 'pedidos ya llegaron') + ' (ya no cuentan en el total)</div>';
+    }
+  }
+  html += '<div class="pend-hint">Toca para ver Invertido, Ingresos y Ganancia neta por separado ▸</div>';
 
+  box.innerHTML = html;
   box.classList.add('clickable');
   box.onclick = () => openFullscreen('Pedidos por llegar · detalle', renderPendientesFsBody(rows));
 }
@@ -950,6 +967,39 @@ function renderMeses(ventas, gastos, data){
         ' <span class="ml-detail">Ing ' + fmt0(s.ing) + ' · GN ' + fmt0(s.gn) + ' · Gastos ' + fmt0(s.g) + ' · Util ' + fmt0(s.util) + '</span></span>' +
       '<span class="ml-amt' + (val<0?' neg':'') + '">S/ ' + fmt(val) + '</span>' +
     '</div>';
+  }).join('');
+}
+
+// 3b. INVENTARIO — stock de todos los productos, con alerta de poco stock (<5 en rojo).
+const STOCK_UMBRAL = 5;
+function renderStock(stocks, data){
+  const box = document.getElementById('stockList');
+  const badge = document.getElementById('stockAlertBadge');
+  if(!box) return;
+  if(!data.stocks){ box.innerHTML = needCfg('Stocks'); if(badge) badge.textContent = ''; return; }
+
+  // Productos con stock, del que menos queda al que más (los urgentes arriba).
+  const conStock = stocks.filter(s => s.stock > 0).sort((a,b) => a.stock - b.stock);
+  const low = conStock.filter(s => s.stock < STOCK_UMBRAL);
+
+  if(badge){
+    badge.textContent = low.length > 0
+      ? '⚠ ' + low.length + ' con poco stock'
+      : '✓ stock sano';
+    badge.className = 'stock-alert-badge' + (low.length > 0 ? ' alert' : '');
+  }
+
+  if(conStock.length === 0){
+    box.innerHTML = '<div class="empty">No hay productos con stock ahora mismo. Cuando llegue mercadería y la registres en tu Excel, aparecerá aquí.</div>';
+    return;
+  }
+
+  box.innerHTML = conStock.map(s => {
+    const isLow = s.stock < STOCK_UMBRAL;
+    return '<div class="stock-row' + (isLow ? ' low-row' : '') + '">' +
+        '<span class="stock-name">' + esc(s.producto) + '</span>' +
+        '<span class="stock-qty' + (isLow ? ' low' : '') + '">' + fmt0(s.stock) + ' und' + (isLow ? ' · poco' : '') + '</span>' +
+      '</div>';
   }).join('');
 }
 

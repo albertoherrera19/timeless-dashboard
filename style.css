@@ -319,6 +319,42 @@ h1{
 .pend-row.llego .pend-name{color:var(--muted);text-decoration:line-through;}
 .pend-row.llego .pend-amt{color:var(--ok);}
 
+/* 3b. Inventario / stock con alerta de poco stock */
+.stock-alert-badge{font-size:11px;font-weight:700;color:var(--ok);flex-shrink:0;}
+.stock-alert-badge.alert{color:var(--bad);}
+.stock-list{margin-top:2px;}
+.stock-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  padding:9px 2px;
+  border-bottom:1px dashed var(--line);
+  font-size:13px;
+}
+.stock-row:last-child{border-bottom:none;}
+.stock-row.low-row{
+  background:linear-gradient(90deg, transparent, rgba(251,113,133,.10));
+  border-radius:8px;
+}
+.stock-name{color:var(--bone);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;}
+.stock-qty{
+  font-family:"SFMono-Regular",Consolas,Menlo,monospace;
+  font-weight:700;
+  flex-shrink:0;
+  color:var(--muted);
+}
+.stock-qty.low{
+  color:var(--bad);
+  border:1px solid var(--bad);
+  border-radius:7px;
+  padding:2px 8px;
+}
+
+/* Notas de pendientes (los que ya llegaron) */
+.pend-arrived-note{font-size:11px;color:var(--ok);margin-top:8px;}
+.pend-allarrived{font-size:12px;color:var(--muted);padding:4px 0;}
+
 /* 4. Mes a mes (mismo estilo que la app de gastos) */
 .months-bars{
   display:flex;
