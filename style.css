@@ -602,6 +602,85 @@ h1{
 .fs-metric-row .fs-mname{color:var(--muted);font-size:13px;}
 .fs-metric-row .fs-mamt{font-family:"SFMono-Regular",Consolas,Menlo,monospace;font-weight:800;font-size:20px;}
 
+/* 7. Accesorios para traer */
+.compras-list{display:flex;flex-direction:column;}
+.compra-row{
+  display:flex;align-items:center;gap:12px;padding:12px 2px;
+  border-bottom:1px dashed var(--line);cursor:pointer;
+}
+.compra-row:last-child{border-bottom:none;}
+.compra-row:active{background:var(--chip);}
+.compra-thumb{
+  width:52px;height:52px;border-radius:10px;overflow:hidden;flex-shrink:0;
+  background:var(--chip);border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;
+}
+.compra-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.compra-thumb-empty{font-size:20px;opacity:.5;}
+.compra-info{flex:1;min-width:0;}
+.compra-top-line{display:flex;align-items:center;gap:8px;}
+.compra-nombre{color:var(--bone);font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.compra-badge{
+  font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;
+  padding:2px 7px;border-radius:6px;flex-shrink:0;
+}
+.compra-badge.nuevo{background:var(--accent-dim);color:var(--accent);}
+.compra-badge.restock{background:var(--chip);color:var(--muted);border:1px solid var(--line);}
+.compra-meta{font-size:11px;color:var(--muted);margin-top:3px;}
+.compra-precio{font-weight:800;font-size:14px;flex-shrink:0;}
+
+/* Formulario de bloque de compra (dentro de la vista de pantalla completa) */
+.compra-form{display:flex;flex-direction:column;gap:6px;max-width:520px;}
+.cf-label{
+  font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+  font-weight:700;margin:14px 0 6px;
+}
+.cf-label:first-child{margin-top:0;}
+.cf-input{
+  background:var(--chip);border:1px solid var(--line);color:var(--bone);
+  border-radius:10px;padding:10px 12px;font-size:14px;width:100%;
+}
+.cf-input:focus{outline:none;border-color:var(--accent);}
+.cf-textarea{min-height:70px;resize:vertical;font-family:inherit;}
+.cf-row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.cf-row2 .cf-label{margin-top:0;}
+
+.cf-prod-row{display:flex;gap:8px;margin-bottom:8px;align-items:center;}
+.cf-prod-row .cf-prod-nombre{flex:1;}
+.cf-prod-row .cf-prod-cant{width:70px;flex-shrink:0;}
+.cf-prod-del{
+  background:var(--chip);border:1px solid var(--line);color:var(--muted);
+  width:36px;height:36px;border-radius:9px;font-size:16px;cursor:pointer;flex-shrink:0;
+}
+.cf-add-btn{
+  align-self:flex-start;background:none;border:1px dashed var(--line);color:var(--accent);
+  font-size:12px;font-weight:700;padding:8px 14px;border-radius:9px;cursor:pointer;margin-top:2px;
+}
+
+.cf-foto-row{display:flex;gap:14px;align-items:center;}
+.cf-foto-preview{
+  width:64px;height:64px;border-radius:12px;overflow:hidden;flex-shrink:0;
+  background:var(--chip);border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;
+}
+.cf-foto-preview img{width:100%;height:100%;object-fit:cover;display:block;}
+.cf-foto-preview span{font-size:9px;color:var(--muted);text-align:center;}
+.cf-foto-actions{display:flex;flex-direction:column;gap:6px;}
+.cf-file-btn{
+  background:var(--chip);border:1px solid var(--line);color:var(--bone);
+  font-size:12px;font-weight:700;padding:9px 14px;border-radius:9px;cursor:pointer;
+  display:inline-block;width:fit-content;
+}
+.cf-foto-status{font-size:11px;color:var(--muted);}
+
+.cf-actions{display:flex;gap:10px;margin-top:22px;}
+.cf-btn{
+  flex:1;border:none;border-radius:11px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;
+}
+.cf-btn-primary{background:var(--accent);color:#fff;}
+.cf-btn-danger{background:var(--chip);color:var(--bad);border:1px solid var(--bad);}
+.cf-save-status{font-size:12px;color:var(--muted);margin-top:10px;text-align:center;}
+
 footer{
   margin-top:26px;
   padding-top:14px;

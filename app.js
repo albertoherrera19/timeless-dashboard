@@ -1029,6 +1029,266 @@ function renderTop(stocks, data){
   ).join('');
 }
 
+/* ---------- 7. Accesorios para traer (planificación de compras) ----------
+   A diferencia de las demás secciones (que leen CSVs publicados, con retraso
+   de minutos), esta lee y escribe directo contra el Apps Script vía
+   cfg.WEBHOOK_URL: así Alberto ve sus propios cambios al instante desde el
+   celular o la PC, sin esperar el ciclo de "Publicar en la web". */
+let compras = [];
+
+function loadCompras(){
+  const box = document.getElementById('comprasList');
+  if(!cfg.WEBHOOK_URL){ if(box) box.innerHTML = needCfg('WEBHOOK_URL'); return; }
+  fetch(cfg.WEBHOOK_URL + '?action=compras&_cb=' + Date.now(), {cache:'no-store'})
+    .then(r => r.json())
+    .then(resp => {
+      compras = (resp && resp.compras) ? resp.compras : [];
+      renderCompras();
+    })
+    .catch(() => { if(box) box.innerHTML = '<div class="empty">No se pudo cargar. Revisa tu conexión y vuelve a intentar.</div>'; });
+}
+
+function fmtRangoFechas(c){
+  const f = (iso) => iso ? new Date(iso).toLocaleDateString('es-PE', {day:'2-digit', month:'2-digit'}) : null;
+  const ini = f(c.fechaInicio), fin = f(c.fechaFin);
+  if(ini && fin) return ini + ' – ' + fin;
+  if(ini) return 'Desde ' + ini;
+  if(fin) return 'Hasta ' + fin;
+  return 'Sin fecha planeada';
+}
+
+function renderCompras(){
+  const box = document.getElementById('comprasList');
+  if(!box) return;
+  if(compras.length === 0){
+    box.innerHTML = '<div class="empty">Aún no tienes bloques de compra planeados. Toca "+ Nuevo bloque" para agregar el primero.</div>';
+    return;
+  }
+  const ordenados = compras.slice().sort((a,b) => new Date(b.creadoEn||0) - new Date(a.creadoEn||0));
+  box.innerHTML = ordenados.map(c => {
+    const unidades = (c.productos||[]).reduce((s,p) => s + (Number(p.cantidad)||0), 0);
+    const nProd = (c.productos||[]).length;
+    const thumb = c.fotoUrl
+      ? '<img src="' + esc(c.fotoUrl) + '" alt="">'
+      : '<div class="compra-thumb-empty">📦</div>';
+    return '<div class="compra-row" data-id="' + esc(c.id) + '">' +
+        '<div class="compra-thumb">' + thumb + '</div>' +
+        '<div class="compra-info">' +
+          '<div class="compra-top-line">' +
+            '<span class="compra-nombre">' + esc(c.nombre || '(sin nombre)') + '</span>' +
+            '<span class="compra-badge ' + (c.estado==='Restock'?'restock':'nuevo') + '">' + esc(c.estado||'Nuevo') + '</span>' +
+          '</div>' +
+          '<div class="compra-meta">' + esc(fmtRangoFechas(c)) + ' · ' + nProd + ' producto(s)' + (unidades?' · ~' + fmt0(unidades) + ' u':'') + '</div>' +
+        '</div>' +
+        '<div class="compra-precio mono">S/ ' + fmt(c.precioTotal||0) + '</div>' +
+      '</div>';
+  }).join('');
+  box.querySelectorAll('.compra-row').forEach(el => {
+    el.addEventListener('click', () => {
+      const c = compras.find(x => x.id === el.getAttribute('data-id'));
+      if(c) openCompraForm(c);
+    });
+  });
+}
+
+document.getElementById('compraNuevoBtn').addEventListener('click', () => openCompraForm(null));
+
+// Reduce la foto a un tamaño razonable ANTES de subirla (fotos de celular
+// pueden pesar 10+ MB; esto evita llenar tu Drive y que la subida sea lenta).
+function resizeImageToBase64(file, maxDim, quality){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('No se pudo leer el archivo'));
+    reader.onload = () => {
+      img.onerror = () => reject(new Error('Archivo no es una imagen válida'));
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if(w > maxDim || h > maxDim){
+          const ratio = Math.min(maxDim/w, maxDim/h);
+          w = Math.round(w*ratio); h = Math.round(h*ratio);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(dataUrl.split(',')[1]);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function uploadCompraFoto(file, onStatus){
+  onStatus('Subiendo foto…');
+  return resizeImageToBase64(file, 1400, 0.82).then(base64 => {
+    return fetch(cfg.WEBHOOK_URL, {
+      // text/plain evita el preflight CORS (que Apps Script no responde);
+      // el body sigue siendo JSON, Apps Script lo lee igual con JSON.parse.
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({type:'compraFoto', base64, mimeType:'image/jpeg', filename:'compra-' + Date.now() + '.jpg'})
+    }).then(r => r.json());
+  }).then(resp => {
+    if(!resp.ok) throw new Error(resp.error || 'Error al subir la foto');
+    onStatus('');
+    return resp.url;
+  }).catch(err => { onStatus('⚠ ' + err.message); throw err; });
+}
+
+function renderCompraForm(c){
+  const editando = !!c;
+  const productos = (c && c.productos && c.productos.length) ? c.productos : [{producto:'', cantidad:''}];
+  const fRows = productos.map(p => compraProductoRowHtml(p.producto, p.cantidad)).join('');
+  const fIni = c && c.fechaInicio ? new Date(c.fechaInicio).toISOString().slice(0,10) : '';
+  const fFin = c && c.fechaFin ? new Date(c.fechaFin).toISOString().slice(0,10) : '';
+  const estado = (c && c.estado) || 'Nuevo';
+  const fotoUrl = (c && c.fotoUrl) || '';
+
+  return '<div class="compra-form">' +
+    '<label class="cf-label">Nombre del bloque</label>' +
+    '<input type="text" class="cf-input" id="cfNombre" placeholder="Ej. Combo cinturones + collares" value="' + esc((c&&c.nombre)||'') + '">' +
+
+    '<label class="cf-label">Estado</label>' +
+    '<div class="util-toggle" id="cfEstadoToggle">' +
+      '<button type="button" data-v="Nuevo" class="' + (estado==='Nuevo'?'active':'') + '">Nuevo</button>' +
+      '<button type="button" data-v="Restock" class="' + (estado==='Restock'?'active':'') + '">Restock</button>' +
+    '</div>' +
+
+    '<div class="cf-row2">' +
+      '<div><label class="cf-label">Fecha inicio (opcional)</label><input type="date" class="cf-input" id="cfFechaIni" value="' + fIni + '"></div>' +
+      '<div><label class="cf-label">Fecha fin (opcional)</label><input type="date" class="cf-input" id="cfFechaFin" value="' + fFin + '"></div>' +
+    '</div>' +
+
+    '<label class="cf-label">Precio total del bloque (lo que pagas en conjunto, no por producto)</label>' +
+    '<input type="number" step="0.01" class="cf-input" id="cfPrecio" placeholder="0.00" value="' + ((c&&c.precioTotal)||'') + '">' +
+
+    '<label class="cf-label">Productos y cantidades aprox.</label>' +
+    '<div id="cfProductos">' + fRows + '</div>' +
+    '<button type="button" class="cf-add-btn" id="cfAddProducto">+ Agregar producto</button>' +
+
+    '<label class="cf-label">Foto</label>' +
+    '<div class="cf-foto-row">' +
+      '<div class="cf-foto-preview" id="cfFotoPreview">' + (fotoUrl ? '<img src="' + esc(fotoUrl) + '">' : '<span>Sin foto</span>') + '</div>' +
+      '<div class="cf-foto-actions">' +
+        '<label class="cf-file-btn">Elegir foto<input type="file" accept="image/*" id="cfFotoInput" hidden></label>' +
+        '<div class="cf-foto-status" id="cfFotoStatus"></div>' +
+      '</div>' +
+    '</div>' +
+
+    '<label class="cf-label">Notas (opcional)</label>' +
+    '<textarea class="cf-input cf-textarea" id="cfNotas" placeholder="Cualquier detalle extra...">' + esc((c&&c.notas)||'') + '</textarea>' +
+
+    '<div class="cf-actions">' +
+      (editando ? '<button type="button" class="cf-btn cf-btn-danger" id="cfEliminar">Eliminar</button>' : '') +
+      '<button type="button" class="cf-btn cf-btn-primary" id="cfGuardar">' + (editando?'Guardar cambios':'Guardar') + '</button>' +
+    '</div>' +
+    '<div class="cf-save-status" id="cfSaveStatus"></div>' +
+  '</div>';
+}
+
+function compraProductoRowHtml(producto, cantidad){
+  return '<div class="cf-prod-row">' +
+      '<input type="text" class="cf-input cf-prod-nombre" placeholder="Producto" value="' + esc(producto||'') + '">' +
+      '<input type="number" class="cf-input cf-prod-cant" placeholder="Cant." value="' + esc(cantidad||'') + '">' +
+      '<button type="button" class="cf-prod-del">×</button>' +
+    '</div>';
+}
+
+function openCompraForm(c){
+  openFullscreen(c ? 'Editar bloque de compra' : 'Nuevo bloque de compra', renderCompraForm(c));
+  wireCompraForm(c);
+}
+
+function wireCompraForm(c){
+  let fotoUrl = (c && c.fotoUrl) || '';
+  const estadoBox = document.getElementById('cfEstadoToggle');
+  let estado = (c && c.estado) || 'Nuevo';
+  estadoBox.querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', () => {
+      estado = b.getAttribute('data-v');
+      estadoBox.querySelectorAll('button').forEach(x => x.classList.toggle('active', x===b));
+    });
+  });
+
+  function wireProdRemove(row){
+    row.querySelector('.cf-prod-del').addEventListener('click', () => {
+      const rows = document.querySelectorAll('#cfProductos .cf-prod-row');
+      if(rows.length > 1) row.remove();
+      else { row.querySelector('.cf-prod-nombre').value=''; row.querySelector('.cf-prod-cant').value=''; }
+    });
+  }
+  document.querySelectorAll('#cfProductos .cf-prod-row').forEach(wireProdRemove);
+
+  document.getElementById('cfAddProducto').addEventListener('click', () => {
+    const wrap = document.getElementById('cfProductos');
+    const div = document.createElement('div');
+    div.innerHTML = compraProductoRowHtml('', '');
+    const row = div.firstElementChild;
+    wrap.appendChild(row);
+    wireProdRemove(row);
+  });
+
+  document.getElementById('cfFotoInput').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    const statusEl = document.getElementById('cfFotoStatus');
+    uploadCompraFoto(file, (msg) => { statusEl.textContent = msg; })
+      .then(url => {
+        fotoUrl = url;
+        document.getElementById('cfFotoPreview').innerHTML = '<img src="' + esc(url) + '">';
+      })
+      .catch(() => {});
+  });
+
+  document.getElementById('cfEliminar')?.addEventListener('click', () => {
+    if(!confirm('¿Eliminar este bloque de compra? No se puede deshacer.')) return;
+    fetch(cfg.WEBHOOK_URL, {
+      // text/plain evita el preflight CORS (que Apps Script no responde);
+      // el body sigue siendo JSON, Apps Script lo lee igual con JSON.parse.
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({type:'compraEliminar', id:c.id})
+    }).then(r => r.json()).then(resp => {
+      if(resp.ok){ closeFullscreen(); loadCompras(); }
+      else { document.getElementById('cfSaveStatus').textContent = '⚠ ' + (resp.error||'Error al eliminar'); }
+    }).catch(() => { document.getElementById('cfSaveStatus').textContent = '⚠ Error de conexión.'; });
+  });
+
+  document.getElementById('cfGuardar').addEventListener('click', () => {
+    const nombre = document.getElementById('cfNombre').value.trim();
+    if(!nombre){ document.getElementById('cfSaveStatus').textContent = '⚠ Ponle un nombre al bloque.'; return; }
+    const productos = [...document.querySelectorAll('#cfProductos .cf-prod-row')].map(row => ({
+      producto: row.querySelector('.cf-prod-nombre').value.trim(),
+      cantidad: Number(row.querySelector('.cf-prod-cant').value) || 0,
+    })).filter(p => p.producto);
+
+    const payload = {
+      id: c ? c.id : null,
+      nombre,
+      estado,
+      fechaInicio: document.getElementById('cfFechaIni').value || null,
+      fechaFin: document.getElementById('cfFechaFin').value || null,
+      precioTotal: Number(document.getElementById('cfPrecio').value) || 0,
+      productos,
+      fotoUrl,
+      notas: document.getElementById('cfNotas').value.trim(),
+      creadoEn: c ? c.creadoEn : null,
+    };
+
+    const statusEl = document.getElementById('cfSaveStatus');
+    statusEl.textContent = 'Guardando…';
+    fetch(cfg.WEBHOOK_URL, {
+      // text/plain evita el preflight CORS (que Apps Script no responde);
+      // el body sigue siendo JSON, Apps Script lo lee igual con JSON.parse.
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({type:'compraGuardar', compra:payload})
+    }).then(r => r.json()).then(resp => {
+      if(resp.ok){ closeFullscreen(); loadCompras(); }
+      else { statusEl.textContent = '⚠ ' + (resp.error||'Error al guardar'); }
+    }).catch(() => { statusEl.textContent = '⚠ Error de conexión.'; });
+  });
+}
+
 /* ---------- Arranque ---------- */
 // Cambiar de mes re-pinta Utilidad y Proyección con los datos ya cargados.
 document.getElementById('monthSelect').addEventListener('change', (e) => {
@@ -1065,3 +1325,4 @@ let savedTheme = 'negro';
 try{ savedTheme = localStorage.getItem(THEME_KEY) || 'negro'; }catch(e){}
 applyTheme(savedTheme);
 loadAll();
+loadCompras();

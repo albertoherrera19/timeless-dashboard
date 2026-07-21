@@ -14,6 +14,11 @@
 
 const TIMELESS_CONFIG = {
 
+  // URL /exec de tu Apps Script. La usa la sección "Accesorios para traer"
+  // para guardar/borrar bloques de compra y subir fotos directo desde el
+  // dashboard (a diferencia de las demás pestañas, que son solo lectura).
+  WEBHOOK_URL: 'https://script.google.com/macros/s/AKfycbyrBdHPotM_u1YiXfc3glhlz3aIZM6_GYsPxl4YLFAQeUpzla17j5YGRspCkd7cRix_/exec',
+
   // Pestaña "Ventas" — una fila por MES: Mes, Ingresos, Ganancia neta
   CSV_VENTAS: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBRgF8Fuo4jQD-iur4ziP656jtllYGtp6aSN2Uv0Cn3bGZAs1qgq9VInR9w-8dv_ESSvG37G5euD5T/pub?gid=1119449104&single=true&output=csv',
 
