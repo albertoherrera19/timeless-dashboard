@@ -6,7 +6,7 @@
 const THEMES = {
   negro:   {label:'Negro',   bg:'#141414', card:'#1c1c1c', line:'#2c2c2c', bone:'#f2f0ea', muted:'#8a8680', accent:'#e8442c', accentDim:'#5c2016', chip:'#111111', swatch:'#141414'},
   azul:    {label:'Azul',    bg:'#0d1420', card:'#141d2b', line:'#233047', bone:'#eef3fa', muted:'#7c93ad', accent:'#2f7dd8', accentDim:'#173a63', chip:'#0f1621', swatch:'#2f7dd8'},
-  marino:  {label:'Azul marino', bg:'#0a1128', card:'#101a3d', line:'#1c2a56', bone:'#eef1fa', muted:'#7e8bb3', accent:'#4a6da3', accentDim:'#1f2f52', chip:'#0d1730', swatch:'#16274f'},
+  marino:  {label:'Azul marino', bg:'#060147', card:'#0d0a5c', line:'#1c1875', bone:'#eef1fa', muted:'#8a86c2', accent:'#5b7fd6', accentDim:'#221c6b', chip:'#0a0650', swatch:'#060147'},
   celeste: {label:'Celeste', bg:'#0c1a1f', card:'#12242b', line:'#1f3843', bone:'#eaf6f9', muted:'#7fa8b3', accent:'#22b8e8', accentDim:'#0f4a5c', chip:'#0e1c21', swatch:'#22b8e8'},
   morado:  {label:'Morado',  bg:'#160f22', card:'#201533', line:'#33234c', bone:'#f2ecfa', muted:'#9c85bd', accent:'#9b4de0', accentDim:'#3f2064', chip:'#180f24', swatch:'#9b4de0'},
   rojo:    {label:'Rojo',    bg:'#1c0f0f', card:'#2a1414', line:'#432020', bone:'#faeeee', muted:'#c08a8a', accent:'#e8302f', accentDim:'#5c1414', chip:'#1e1010', swatch:'#e8302f'},
@@ -658,9 +658,13 @@ function needCfg(tabs){
 function openFullscreen(title, bodyHtml){
   document.getElementById('fsTitle').textContent = title;
   document.getElementById('fsBody').innerHTML = bodyHtml;
-  document.getElementById('fsView').hidden = false;
+  const fsView = document.getElementById('fsView');
+  fsView.hidden = false;
+  // Solo resetea el scroll INTERNO del overlay (empieza arriba), sin tocar el
+  // scroll de la página de atrás — así al volver quedas donde hiciste click,
+  // no arriba de todo.
+  fsView.scrollTop = 0;
   document.body.style.overflow = 'hidden';
-  window.scrollTo(0,0);
 }
 function closeFullscreen(){
   document.getElementById('fsView').hidden = true;
@@ -1114,6 +1118,88 @@ function renderCompras(){
 }
 
 document.getElementById('compraNuevoBtn').addEventListener('click', () => openCompraForm(null));
+
+/* ---------- Accesorios: vista de pantalla completa por categoría ---------- */
+let comprasFsTab = 'Todos';
+
+document.getElementById('comprasHeaderBtn').addEventListener('click', () => {
+  comprasFsTab = 'Todos';
+  openFullscreen('Accesorios para traer', renderComprasFsBody());
+  wireComprasFsTabs();
+});
+
+// Tabla de productos de un bloque: nombre, tipo (nuevo/restock), cantidad,
+// precio de venta por unidad e ingreso de esa línea (precio × cantidad).
+function buildComprasProductosTable(productos){
+  if(!productos || productos.length === 0) return '<div class="empty">Sin productos en este bloque.</div>';
+  const head = '<tr><th>Producto</th><th>Tipo</th><th>Cant.</th><th>Venta c/u</th><th>Ingreso</th></tr>';
+  const rows = productos.map(p => {
+    const ingreso = (Number(p.precioVenta)||0) * (Number(p.cantidad)||0);
+    return '<tr>' +
+      '<td>' + esc(p.producto||'') + '</td>' +
+      '<td>' + esc(p.tipo||'Nuevo') + '</td>' +
+      '<td class="mono">' + fmt0(p.cantidad||0) + '</td>' +
+      '<td class="mono">' + (p.precioVenta ? 'S/ ' + fmt(p.precioVenta) : '—') + '</td>' +
+      '<td class="mono">' + (ingreso ? 'S/ ' + fmt(ingreso) : '—') + '</td>' +
+    '</tr>';
+  }).join('');
+  return '<div class="ads-daily-wrap"><table class="ads-daily">' + head + rows + '</table></div>';
+}
+
+function renderComprasFsBody(){
+  const tabs = '<div class="fs-tabs" id="comprasFsTabs">' +
+      '<button type="button" data-v="Todos">Todos</button>' +
+      '<button type="button" data-v="Ambos">Ambos</button>' +
+      '<button type="button" data-v="Nuevo">Nuevo</button>' +
+      '<button type="button" data-v="Restock">Restock</button>' +
+    '</div>';
+
+  const filtrados = comprasFsTab === 'Todos' ? compras : compras.filter(c => c.estado === comprasFsTab);
+  if(filtrados.length === 0){
+    return tabs + '<div class="empty">No hay bloques en esta categoría todavía.</div>';
+  }
+
+  const ordenados = filtrados.slice().sort((a,b) => new Date(b.creadoEn||0) - new Date(a.creadoEn||0));
+  const items = ordenados.map((c, i) => {
+    const productos = c.productos || [];
+    const ingresoTotal = productos.reduce((s,p) => s + (Number(p.precioVenta)||0) * (Number(p.cantidad)||0), 0);
+    const gananciaAprox = (c.precioTotal > 0 && ingresoTotal > 0) ? ingresoTotal - c.precioTotal : null;
+    const estadoCls = c.estado==='Restock' ? 'restock' : c.estado==='Ambos' ? 'ambos' : 'nuevo';
+    const gananciaLinea = gananciaAprox != null
+      ? '<div class="compra-ganancia">Ganancia aprox. si vendes todo: <span class="mono ' + (gananciaAprox<0?'neg':'ok') + '">S/ ' + fmt(gananciaAprox) + '</span></div>'
+      : '';
+    return '<div class="compra-fs-item" data-i="' + i + '">' +
+        '<div class="compra-fs-row">' +
+          '<span class="camp-caret">▸</span>' +
+          '<span class="compra-fs-nombre">' + esc(c.nombre || '(sin nombre)') + '</span>' +
+          '<span class="compra-badge ' + estadoCls + '">' + esc(c.estado||'Ambos') + '</span>' +
+          '<span class="compra-fs-precio mono">S/ ' + fmt(c.precioTotal||0) + '</span>' +
+        '</div>' +
+        '<div class="compra-fs-detail">' +
+          buildComprasProductosTable(productos) +
+          gananciaLinea +
+        '</div>' +
+      '</div>';
+  }).join('');
+
+  return tabs + '<div class="compras-fs-list">' + items + '</div>';
+}
+
+function wireComprasFsTabs(){
+  const tabsBox = document.getElementById('comprasFsTabs');
+  if(!tabsBox) return;
+  tabsBox.querySelectorAll('button').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('data-v') === comprasFsTab);
+    b.addEventListener('click', () => {
+      comprasFsTab = b.getAttribute('data-v');
+      setFsBody(renderComprasFsBody());
+      wireComprasFsTabs();
+    });
+  });
+  document.querySelectorAll('.compra-fs-item .compra-fs-row').forEach(row => {
+    row.addEventListener('click', () => row.parentElement.classList.toggle('open'));
+  });
+}
 
 // Reduce la foto a un tamaño razonable ANTES de subirla (fotos de celular
 // pueden pesar 10+ MB; esto evita llenar tu Drive y que la subida sea lenta).

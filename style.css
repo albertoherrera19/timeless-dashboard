@@ -172,6 +172,11 @@ h1{
   font-weight:700;
   margin-bottom:12px;
 }
+.section-label-btn{
+  background:none;border:none;padding:0;margin:0 0 12px;
+  cursor:pointer;text-align:left;
+}
+.section-label-btn:active{opacity:.7;}
 .mini-label{
   font-size:10px;
   text-transform:uppercase;
@@ -472,6 +477,16 @@ h1{
 .camp-item.open .camp-days{display:flex;}
 .camp-day{display:flex;gap:6px;font-size:11px;color:var(--muted);background:var(--chip);border:1px solid var(--line);border-radius:6px;padding:3px 7px;}
 .camp-day .mono{color:var(--bone);font-weight:700;}
+
+/* Accesorios: vista de pantalla completa por categoría (Ambos/Nuevo/Restock) */
+.compras-fs-list{margin-top:6px;}
+.compra-fs-item{border-bottom:1px dashed var(--line);padding:10px 0;}
+.compra-fs-item:last-child{border-bottom:none;}
+.compra-fs-row{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;}
+.compra-fs-nombre{flex:1;color:var(--bone);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.compra-fs-precio{font-weight:800;flex-shrink:0;}
+.compra-fs-detail{display:none;margin-top:12px;padding-left:18px;}
+.compra-fs-item.open .compra-fs-detail{display:block;}
 
 /* Tabla de rentabilidad de ads por día */
 .ads-daily-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
