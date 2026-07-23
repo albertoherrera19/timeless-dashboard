@@ -648,12 +648,16 @@ h1{
 .compra-badge.restock{background:var(--chip);color:var(--muted);border:1px solid var(--line);}
 .compra-badge.ambos{background:transparent;color:var(--bone);border:1px solid var(--accent);}
 .compra-meta{font-size:11px;color:var(--muted);margin-top:3px;}
-.compra-pedido-ok{color:var(--ok);font-weight:700;}
-.compra-pedido-parcial{color:var(--accent);font-weight:700;}
 .compra-ganancia{font-size:11px;color:var(--muted);margin-top:2px;}
 .compra-ganancia .mono.ok{color:var(--ok);font-weight:700;}
 .compra-ganancia .mono.neg{color:var(--bad);font-weight:700;}
 .compra-precio{font-weight:800;font-size:14px;flex-shrink:0;}
+.compra-quick-ok{
+  width:32px;height:32px;border-radius:9px;flex-shrink:0;cursor:pointer;
+  background:var(--chip);border:1px solid var(--line);color:var(--muted);
+  font-size:15px;font-weight:800;
+}
+.compra-quick-ok:active{background:var(--ok);border-color:var(--ok);color:#0b0b0b;}
 
 /* Formulario de bloque de compra (dentro de la vista de pantalla completa) */
 .compra-form{display:flex;flex-direction:column;gap:6px;max-width:520px;}
@@ -698,21 +702,6 @@ h1{
 .cf-prod-ganancia.muted{color:var(--muted);font-weight:400;}
 .cf-prod-ganancia.ok{color:var(--ok);}
 .cf-prod-ganancia.neg{color:var(--bad);}
-.cf-prod-check{
-  width:36px;height:36px;border-radius:9px;flex-shrink:0;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
-  background:var(--chip);border:1px solid var(--line);
-}
-.cf-prod-check input{position:absolute;opacity:0;width:0;height:0;}
-.cf-prod-check span{
-  width:16px;height:16px;border-radius:5px;border:2px solid var(--muted);
-  display:block;position:relative;
-}
-.cf-prod-check input:checked + span{background:var(--ok);border-color:var(--ok);}
-.cf-prod-check input:checked + span::after{
-  content:'';position:absolute;left:4px;top:1px;width:4px;height:8px;
-  border:solid #0b0b0b;border-width:0 2px 2px 0;transform:rotate(45deg);
-}
 .cf-prod-del{
   background:var(--chip);border:1px solid var(--line);color:var(--muted);
   width:36px;height:36px;border-radius:9px;font-size:16px;cursor:pointer;flex-shrink:0;

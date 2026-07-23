@@ -1053,6 +1053,21 @@ function loadCompras(){
     .catch(() => { if(box) box.innerHTML = '<div class="empty">No se pudo cargar. Revisa tu conexión y vuelve a intentar.</div>'; });
 }
 
+// Borra un bloque de compra completo (usado tanto por "Eliminar" como por
+// "Ya lo pedí" — ambos quitan el bloque de la lista, solo cambia el mensaje
+// de confirmación según la intención).
+function eliminarCompraBlock(id, onDone, onError){
+  return fetch(cfg.WEBHOOK_URL, {
+    // text/plain evita el preflight CORS (que Apps Script no responde);
+    // el body sigue siendo JSON, Apps Script lo lee igual con JSON.parse.
+    method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({type:'compraEliminar', id})
+  }).then(r => r.json()).then(resp => {
+    if(resp.ok){ onDone(); }
+    else { onError(resp.error || 'Error al eliminar'); }
+  }).catch(() => onError('Error de conexión.'));
+}
+
 function fmtRangoFechas(c){
   const f = (iso) => iso ? new Date(iso).toLocaleDateString('es-PE', {day:'2-digit', month:'2-digit'}) : null;
   const ini = f(c.fechaInicio), fin = f(c.fechaFin);
@@ -1074,17 +1089,10 @@ function renderCompras(){
     const productos = c.productos || [];
     const unidades = productos.reduce((s,p) => s + (Number(p.cantidad)||0), 0);
     const nProd = productos.length;
-    const nPedidos = productos.filter(p => p.pedido).length;
     const primeraFoto = (c.fotos && c.fotos[0]) || '';
     const thumb = primeraFoto
       ? '<img src="' + esc(primeraFoto) + '" alt="">' + (c.fotos.length > 1 ? '<span class="compra-thumb-count">+' + (c.fotos.length-1) + '</span>' : '')
       : '<div class="compra-thumb-empty">📦</div>';
-    let pedidoTxt = '';
-    if(nProd > 0){
-      pedidoTxt = nPedidos === nProd ? ' · <span class="compra-pedido-ok">✓ todo pedido</span>'
-        : nPedidos > 0 ? ' · <span class="compra-pedido-parcial">pedido ' + nPedidos + '/' + nProd + '</span>'
-        : '';
-    }
     // Ganancia aproximada si vende TODO el bloque: ingreso total (venta ×
     // cantidad de cada producto) menos el precio total del bloque, una sola
     // vez (no se reparte por producto — no hay costo individual real).
@@ -1103,16 +1111,23 @@ function renderCompras(){
             '<span class="compra-nombre">' + esc(c.nombre || '(sin nombre)') + '</span>' +
             '<span class="compra-badge ' + estadoCls + '">' + esc(c.estado||'Ambos') + '</span>' +
           '</div>' +
-          '<div class="compra-meta">' + esc(fmtRangoFechas(c)) + ' · ' + nProd + ' producto(s)' + (unidades?' · ~' + fmt0(unidades) + ' u':'') + desgloseTxt + pedidoTxt + '</div>' +
+          '<div class="compra-meta">' + esc(fmtRangoFechas(c)) + ' · ' + nProd + ' producto(s)' + (unidades?' · ~' + fmt0(unidades) + ' u':'') + desgloseTxt + '</div>' +
           gananciaLinea +
         '</div>' +
         '<div class="compra-precio mono">S/ ' + fmt(c.precioTotal||0) + '</div>' +
+        '<button type="button" class="compra-quick-ok" title="Ya lo pedí — quitar de la lista">✓</button>' +
       '</div>';
   }).join('');
   box.querySelectorAll('.compra-row').forEach(el => {
+    const id = el.getAttribute('data-id');
     el.addEventListener('click', () => {
-      const c = compras.find(x => x.id === el.getAttribute('data-id'));
+      const c = compras.find(x => x.id === id);
       if(c) openCompraForm(c);
+    });
+    el.querySelector('.compra-quick-ok').addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if(!confirm('¿Ya pediste/compraste todo este bloque? Se va a quitar de la lista de Accesorios.')) return;
+      eliminarCompraBlock(id, loadCompras, err => alert('⚠ ' + err));
     });
   });
 }
@@ -1246,8 +1261,8 @@ function uploadCompraFoto(file, onStatus){
 
 function renderCompraForm(c){
   const editando = !!c;
-  const productos = (c && c.productos && c.productos.length) ? c.productos : [{producto:'', cantidad:'', precioVenta:'', pedido:false, tipo:'Nuevo', fotos:[]}];
-  const fRows = productos.map(p => compraProductoRowHtml(p.producto, p.cantidad, p.precioVenta, p.pedido, p.tipo)).join('');
+  const productos = (c && c.productos && c.productos.length) ? c.productos : [{producto:'', cantidad:'', precioVenta:'', tipo:'Nuevo', fotos:[]}];
+  const fRows = productos.map(p => compraProductoRowHtml(p.producto, p.cantidad, p.precioVenta, p.tipo)).join('');
   const fIni = c && c.fechaInicio ? new Date(c.fechaInicio).toISOString().slice(0,10) : '';
   const fFin = c && c.fechaFin ? new Date(c.fechaFin).toISOString().slice(0,10) : '';
   const estado = (c && c.estado) || 'Ambos';
@@ -1274,7 +1289,7 @@ function renderCompraForm(c){
 
     '<div class="cf-prod-header">' +
       '<label class="cf-label" style="margin:0;">Productos y cantidades aprox.</label>' +
-      '<button type="button" class="cf-mark-all-btn" id="cfMarcarTodo">Ya lo pedí (todo)</button>' +
+      (editando ? '<button type="button" class="cf-mark-all-btn" id="cfMarcarTodo">✓ Ya lo pedí — quitar de la lista</button>' : '') +
     '</div>' +
     '<div id="cfProductos">' + fRows + '</div>' +
     '<button type="button" class="cf-add-btn" id="cfAddProducto">+ Agregar producto</button>' +
@@ -1297,14 +1312,10 @@ function renderCompraForm(c){
   '</div>';
 }
 
-function compraProductoRowHtml(producto, cantidad, precioVenta, pedido, tipo){
+function compraProductoRowHtml(producto, cantidad, precioVenta, tipo){
   tipo = tipo || 'Nuevo';
   return '<div class="cf-prod-row">' +
       '<div class="cf-prod-line1">' +
-        '<label class="cf-prod-check" title="Ya lo pedí">' +
-          '<input type="checkbox" class="cf-prod-pedido"' + (pedido ? ' checked' : '') + '>' +
-          '<span></span>' +
-        '</label>' +
         '<input type="text" class="cf-input cf-prod-nombre" placeholder="Producto" value="' + esc(producto||'') + '">' +
         '<button type="button" class="cf-prod-del">×</button>' +
       '</div>' +
@@ -1486,7 +1497,7 @@ function wireCompraForm(c){
   document.getElementById('cfAddProducto').addEventListener('click', () => {
     const wrap = document.getElementById('cfProductos');
     const div = document.createElement('div');
-    div.innerHTML = compraProductoRowHtml('', '', '', false, 'Nuevo');
+    div.innerHTML = compraProductoRowHtml('', '', '', 'Nuevo');
     const row = div.firstElementChild;
     wrap.appendChild(row);
     wireProdRemove(row);
@@ -1494,13 +1505,14 @@ function wireCompraForm(c){
     wireProdFotos(row, []);
   });
 
-  // "Ya lo pedí (todo)": marca/desmarca todos los checkboxes de un toque —
-  // para el caso normal donde pediste el bloque completo. Si solo pediste
-  // algunos productos, se destildan uno por uno en cada fila.
-  document.getElementById('cfMarcarTodo').addEventListener('click', () => {
-    const boxes = document.querySelectorAll('#cfProductos .cf-prod-pedido');
-    const marcarTodos = ![...boxes].every(b => b.checked); // si ya estaban todos, esta vez desmarca
-    boxes.forEach(b => { b.checked = marcarTodos; });
+  // "Ya lo pedí": Accesorios es solo un checklist visual, no lleva costo
+  // unitario real (se compra en bloque), así que marcarlo como pedido
+  // simplemente quita el bloque de la lista — igual que "Eliminar".
+  document.getElementById('cfMarcarTodo')?.addEventListener('click', () => {
+    if(!confirm('¿Ya pediste/compraste todo este bloque? Se va a quitar de la lista de Accesorios.')) return;
+    eliminarCompraBlock(c.id,
+      () => { closeFullscreen(); loadCompras(); },
+      err => { document.getElementById('cfSaveStatus').textContent = '⚠ ' + err; });
   });
 
   function renderBlockFotos(){
@@ -1524,15 +1536,9 @@ function wireCompraForm(c){
 
   document.getElementById('cfEliminar')?.addEventListener('click', () => {
     if(!confirm('¿Eliminar este bloque de compra? No se puede deshacer.')) return;
-    fetch(cfg.WEBHOOK_URL, {
-      // text/plain evita el preflight CORS (que Apps Script no responde);
-      // el body sigue siendo JSON, Apps Script lo lee igual con JSON.parse.
-      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({type:'compraEliminar', id:c.id})
-    }).then(r => r.json()).then(resp => {
-      if(resp.ok){ closeFullscreen(); loadCompras(); }
-      else { document.getElementById('cfSaveStatus').textContent = '⚠ ' + (resp.error||'Error al eliminar'); }
-    }).catch(() => { document.getElementById('cfSaveStatus').textContent = '⚠ Error de conexión.'; });
+    eliminarCompraBlock(c.id,
+      () => { closeFullscreen(); loadCompras(); },
+      err => { document.getElementById('cfSaveStatus').textContent = '⚠ ' + err; });
   });
 
   document.getElementById('cfGuardar').addEventListener('click', () => {
@@ -1548,7 +1554,6 @@ function wireCompraForm(c){
         producto: row.querySelector('.cf-prod-nombre').value.trim(),
         cantidad: Number(row.querySelector('.cf-prod-cant').value) || 0,
         precioVenta: Number(row.querySelector('.cf-prod-pventa').value) || 0,
-        pedido: row.querySelector('.cf-prod-pedido').checked,
         tipo,
         fotos: productFotos.get(row) || [],
       };
