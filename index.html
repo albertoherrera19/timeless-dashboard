@@ -74,10 +74,8 @@
   </section>
 
   <!-- 2b. ROAS REAL (ingresos vs gasto real de ads con IGV) -->
-  <section class="card span2" id="roasCard">
-    <div class="hero-top">
-      <div class="section-label">Retorno de la inversión en ads (<span id="roasMonth">—</span>)</div>
-    </div>
+  <section class="card" id="roasCard">
+    <div class="section-label">Retorno de la inversión en ads (<span id="roasMonth">—</span>)</div>
     <div class="roas-big"><span id="roasValue">—</span></div>
     <div class="roas-sub" id="roasSub"></div>
     <div class="roas-rows" id="roasRows"></div>
@@ -101,13 +99,19 @@
   </section>
 
   <!-- 3b. INVENTARIO / STOCK con alerta de poco stock -->
-  <section class="card span2" id="stockCard">
+  <section class="card" id="stockCard">
     <div class="hero-top">
       <div class="section-label">Inventario · stock actual</div>
       <span class="stock-alert-badge" id="stockAlertBadge"></span>
     </div>
     <div class="stock-list" id="stockList"></div>
     <div class="stock-hint">El "~Xd" es en cuántos días se agota aprox., según tu ritmo de venta de los últimos 30 días. En rojo = se acaba en ≤2 semanas, conviene reponer.</div>
+  </section>
+
+  <!-- 5. TOP PRODUCTOS (ganancia potencial en stock) — al lado de Inventario en PC -->
+  <section class="card" id="topCard">
+    <div class="section-label">Top productos · ganancia potencial en stock</div>
+    <div class="top-rows" id="topRows"></div>
   </section>
 
   <!-- 4. COMPARATIVO MES A MES -->
@@ -121,12 +125,6 @@
     </div>
     <div class="months-bars" id="monthsBars"></div>
     <div class="months-list" id="monthsList"></div>
-  </section>
-
-  <!-- 5. TOP PRODUCTOS (ganancia potencial en stock) -->
-  <section class="card span2" id="topCard">
-    <div class="section-label">Top productos · ganancia potencial en stock</div>
-    <div class="top-rows" id="topRows"></div>
   </section>
 
   <!-- 6. MÁS VENDIDOS -->
@@ -145,11 +143,15 @@
   <!-- 6b. MEJOR DÍA DE LA SEMANA (últimos 90 días) -->
   <section class="card span2" id="diaSemanaCard">
     <div class="hero-top">
-      <div class="section-label">Mejor día de la semana</div>
-      <span class="dsem-lead" id="dsemLead"></span>
+      <div class="section-label">Mejor día de la semana <span class="dsem-lead" id="dsemLead"></span></div>
+      <div class="util-toggle" id="dsemToggle">
+        <button type="button" data-dias="90">90 días</button>
+        <button type="button" data-dias="60">60 días</button>
+        <button type="button" data-dias="30">30 días</button>
+      </div>
     </div>
     <div class="dsem-bars" id="dsemBars"></div>
-    <div class="stock-hint">Suma de tus ventas por día de la semana en los últimos 90 días. Te dice qué días vendes más, para postear o lanzar cuando hay más movimiento.</div>
+    <div class="stock-hint" id="dsemHint">Suma de tus ventas por día de la semana. Te dice qué días vendes más, para postear o lanzar cuando hay más movimiento.</div>
   </section>
 
   <!-- 6c. INSTAGRAM (seguidores, alcance, mejores publicaciones) -->

@@ -234,6 +234,9 @@ h1{
 }
 .roas-row:last-child{border-bottom:none;}
 .roas-row .mono{font-weight:700;flex-shrink:0;}
+.roas-row .mono.accent{color:var(--accent);}
+.roas-row .mono.ok{color:var(--ok);}
+.roas-row.total{border-top:1px solid var(--line);margin-top:4px;padding-top:11px;}
 .roas-row.faint{opacity:.6;font-size:12px;}
 .table-title{
   margin:16px 0 4px;

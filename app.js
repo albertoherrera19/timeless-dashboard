@@ -417,15 +417,21 @@ function renderRecent(data){
 
 // 6b. MEJOR DÍA DE LA SEMANA — agrupa las ventas de los últimos 90 días por día
 // de la semana (nº de ventas + ingresos), para ver cuándo hay más movimiento.
-const DSEM_DIAS = 90;
+let dsemDias = 90;
+try{ dsemDias = Number(localStorage.getItem('timeless_dsem_dias')) || 90; }catch(e){}
+if([90,60,30].indexOf(dsemDias) === -1) dsemDias = 90;
 const DSEM_LABELS = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 const DSEM_FULL = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
 function renderDiaSemana(data){
   const box = document.getElementById('dsemBars');
   const lead = document.getElementById('dsemLead');
   if(!box) return;
+  document.querySelectorAll('#dsemToggle button').forEach(b =>
+    b.classList.toggle('active', Number(b.getAttribute('data-dias')) === dsemDias));
+  const hintEl = document.getElementById('dsemHint');
+  if(hintEl) hintEl.textContent = 'Suma de tus ventas por día de la semana en los últimos ' + dsemDias + ' días. Te dice qué días vendes más, para postear o lanzar cuando hay más movimiento.';
   if(!data.ventasDetalle){ box.innerHTML = needCfg('VentasDetalle'); if(lead) lead.textContent=''; return; }
-  const cutoff = new Date(); cutoff.setHours(0,0,0,0); cutoff.setDate(cutoff.getDate() - DSEM_DIAS);
+  const cutoff = new Date(); cutoff.setHours(0,0,0,0); cutoff.setDate(cutoff.getDate() - dsemDias);
   const acc = DSEM_LABELS.map(() => ({ventas:0, ingresos:0}));
   getVentasDetalle(data).filter(v => v.date >= cutoff).forEach(v => {
     const d = v.date.getDay();
@@ -434,7 +440,7 @@ function renderDiaSemana(data){
   });
   const totalVentas = acc.reduce((s,a) => s + a.ventas, 0);
   if(totalVentas === 0){
-    box.innerHTML = '<div class="empty">Sin ventas en los últimos 90 días.</div>';
+    box.innerHTML = '<div class="empty">Sin ventas en los últimos ' + dsemDias + ' días.</div>';
     if(lead) lead.textContent = '';
     return;
   }
@@ -485,36 +491,43 @@ function renderRoas(ventas, data, k){
     if(noteEl) noteEl.textContent = ''; return;
   }
 
-  const ingresos = ventas.filter(v => monthKey(v.date) === k).reduce((s,v) => s + v.ingresos, 0);
+  const vMes = ventas.filter(v => monthKey(v.date) === k);
+  const ingresos = vMes.reduce((s,v) => s + v.ingresos, 0);
+  const gananciaNeta = vMes.reduce((s,v) => s + v.gananciaNeta, 0);
   const adsReal = getGastosAdsMes(data, k);
   const metaSpend = getCampanas(data).filter(c => monthKey(c.date) === k).reduce((s,c) => s + c.gasto, 0);
 
-  // Fuente del costo: preferimos tu registro real (ya con IGV). Si ese mes no
-  // tiene ads registrados pero Meta sí reporta gasto, estimamos Meta × 1.18.
-  let costo, estimado = false;
-  if(adsReal > 0){ costo = adsReal; }
-  else if(metaSpend > 0){ costo = metaSpend * IGV_FACTOR; estimado = true; }
-  else { costo = 0; }
+  // Dos costos: SIN IGV (lo que Meta reporta como gasto de anuncio) y CON IGV
+  // (lo que realmente te cae a la tarjeta). Si falta uno, se deriva del otro:
+  // el gasto real de tu app de gastos ya trae IGV; Meta lo reporta sin IGV.
+  const gastoConIGV = adsReal > 0 ? adsReal : (metaSpend > 0 ? metaSpend * IGV_FACTOR : 0);
+  const gastoSinIGV = metaSpend > 0 ? metaSpend : (adsReal > 0 ? adsReal / IGV_FACTOR : 0);
+  const estimado = !(adsReal > 0); // el costo real con IGV fue estimado (no registrado)
 
-  if(costo <= 0){
+  if(gastoConIGV <= 0){
     valEl.textContent = '—'; subEl.textContent = ''; rowsEl.innerHTML = '';
     if(noteEl) noteEl.textContent = 'No hay gasto de ads registrado en ' + (k ? monthLabel(k) : 'este mes') + '.';
     return;
   }
 
-  const roas = ingresos / costo;
-  valEl.textContent = 'S/ ' + fmt(roas);
-  subEl.textContent = 'vendidos por cada S/ 1 que pusiste en publicidad';
+  const roasReal = gastoConIGV > 0 ? ingresos / gastoConIGV : 0;
+  const roasSinIGV = gastoSinIGV > 0 ? ingresos / gastoSinIGV : 0;
+
+  valEl.textContent = roasReal.toFixed(2) + 'x';
+  subEl.textContent = 'ROAS real · S/ ' + fmt(roasReal) + ' vendidos por cada S/ 1 (con IGV)';
 
   rowsEl.innerHTML =
-    '<div class="roas-row"><span>Ingresos del mes (todo lo vendido)</span><span class="mono">S/ ' + fmt(ingresos) + '</span></div>' +
-    '<div class="roas-row"><span>Gasto real en ads' + (estimado ? ' (estimado ×1.18)' : ' (lo que te cobró la tarjeta)') + '</span><span class="mono">S/ ' + fmt(costo) + '</span></div>' +
-    (metaSpend > 0 && !estimado ? '<div class="roas-row faint"><span>↳ Meta reporta sin IGV</span><span class="mono">S/ ' + fmt(metaSpend) + '</span></div>' : '');
+    '<div class="roas-row"><span>ROAS sin IGV (gasto que reporta Meta)</span><span class="mono">' + roasSinIGV.toFixed(2) + 'x</span></div>' +
+    '<div class="roas-row"><span>ROAS real (con IGV, lo que te cobran)</span><span class="mono accent">' + roasReal.toFixed(2) + 'x</span></div>' +
+    '<div class="roas-row total"><span>Ingresos de ventas del mes</span><span class="mono">S/ ' + fmt(ingresos) + '</span></div>' +
+    '<div class="roas-row"><span>De eso, ganancia neta (líquida)</span><span class="mono ok">S/ ' + fmt(gananciaNeta) + '</span></div>' +
+    '<div class="roas-row"><span>Gasto real en ads' + (estimado ? ' (estimado ×1.18)' : ' (tu tarjeta, con IGV)') + '</span><span class="mono">S/ ' + fmt(gastoConIGV) + '</span></div>' +
+    (metaSpend > 0 ? '<div class="roas-row faint"><span>↳ Meta reporta sin IGV</span><span class="mono">S/ ' + fmt(metaSpend) + '</span></div>' : '');
 
   if(noteEl){
     noteEl.textContent = estimado
-      ? 'Este mes no tiene ads en tu app de gastos; se estimó el costo real como el gasto de Meta + 18% de IGV.'
-      : 'Es retorno total: no todas las ventas vienen de los ads, así que tómalo como idea de eficiencia general, no exacto por anuncio.';
+      ? 'Este mes no tiene ads en tu app de gastos; el costo con IGV se estimó como el gasto de Meta + 18%. El "ROAS real" es retorno total (no todo viene de los ads).'
+      : 'El "ROAS real" es retorno total del mes (no todas las ventas vienen de los ads), tómalo como eficiencia general.';
   }
 }
 
@@ -1859,6 +1872,15 @@ document.getElementById('recentToggle').addEventListener('click', (e) => {
   recentDias = Number(btn.getAttribute('data-dias'));
   try{ localStorage.setItem('timeless_recent_dias', recentDias); }catch(err){}
   if(LAST) renderRecent(LAST.data);
+});
+
+// Mejor día de la semana: elegir el período (90 / 60 / 30 días).
+document.getElementById('dsemToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-dias]');
+  if(!btn) return;
+  dsemDias = Number(btn.getAttribute('data-dias'));
+  try{ localStorage.setItem('timeless_dsem_dias', dsemDias); }catch(err){}
+  if(LAST) renderDiaSemana(LAST.data);
 });
 
 let savedTheme = 'negro';
