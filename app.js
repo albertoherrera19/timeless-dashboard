@@ -369,7 +369,9 @@ function renderAll(data, missing){
   renderMeses(ventas, gastos, data);
   renderTop(stocks, data);
   renderRecent(data);
+  renderDiaSemana(data);
   renderAds(data, selectedMonthKey);
+  renderRoas(ventas, data, selectedMonthKey);
   document.getElementById('footTime').textContent = new Date().getFullYear();
 }
 
@@ -411,6 +413,109 @@ function renderRecent(data){
     '</div>' +
     '<div class="top-bar"><div class="top-bar-fill" style="width:' + (r.units/max*100) + '%"></div></div>'
   ).join('');
+}
+
+// 6b. MEJOR DÍA DE LA SEMANA — agrupa las ventas de los últimos 90 días por día
+// de la semana (nº de ventas + ingresos), para ver cuándo hay más movimiento.
+const DSEM_DIAS = 90;
+const DSEM_LABELS = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+const DSEM_FULL = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+function renderDiaSemana(data){
+  const box = document.getElementById('dsemBars');
+  const lead = document.getElementById('dsemLead');
+  if(!box) return;
+  if(!data.ventasDetalle){ box.innerHTML = needCfg('VentasDetalle'); if(lead) lead.textContent=''; return; }
+  const cutoff = new Date(); cutoff.setHours(0,0,0,0); cutoff.setDate(cutoff.getDate() - DSEM_DIAS);
+  const acc = DSEM_LABELS.map(() => ({ventas:0, ingresos:0}));
+  getVentasDetalle(data).filter(v => v.date >= cutoff).forEach(v => {
+    const d = v.date.getDay();
+    acc[d].ventas += 1;
+    acc[d].ingresos += v.venta;
+  });
+  const totalVentas = acc.reduce((s,a) => s + a.ventas, 0);
+  if(totalVentas === 0){
+    box.innerHTML = '<div class="empty">Sin ventas en los últimos 90 días.</div>';
+    if(lead) lead.textContent = '';
+    return;
+  }
+  const maxV = Math.max(...acc.map(a => a.ventas), 1);
+  // El mejor día lo lidera el nº de ventas (el ingreso es solo detalle).
+  let bestIdx = 0;
+  acc.forEach((a, i) => { if(a.ventas > acc[bestIdx].ventas) bestIdx = i; });
+  if(lead) lead.textContent = '🔥 ' + cap(DSEM_FULL[bestIdx]);
+
+  // Se muestra Lun→Dom (más natural que Dom→Sáb del getDay()).
+  const orden = [1,2,3,4,5,6,0];
+  box.innerHTML = orden.map(i => {
+    const a = acc[i];
+    const h = Math.max(a.ventas / maxV * 100, 4);
+    return '<div class="dsem-bar' + (i === bestIdx ? ' best' : '') + '">' +
+        '<div class="dsem-col-wrap"><div class="dsem-col" style="height:' + h + '%">' +
+          '<span class="dsem-val">' + fmt0(a.ventas) + '</span>' +
+        '</div></div>' +
+        '<div class="dsem-lbl">' + DSEM_LABELS[i] + '</div>' +
+      '</div>';
+  }).join('');
+}
+
+// 2b. ROAS REAL — ingresos del mes vs gasto REAL en ads (de tu app de gastos,
+// que ya incluye el IGV). Si un mes viejo no tiene ads registrados pero Meta sí
+// reporta gasto, se estima el costo real como Meta × 1.18.
+const IGV_FACTOR = 1.18;
+function getGastosAdsMes(data, k){
+  return body(data.gastos).map(r => ({
+    date: parseDateSmart(r[1]),
+    categoria: (r[2]||'').trim(),
+    monto: parseMoney(r[3]),
+  })).filter(g => g.date && g.monto > 0 && normName(g.categoria) === 'ads' &&
+    (!k || monthKey(g.date) === k)).reduce((s,g) => s + g.monto, 0);
+}
+
+function renderRoas(ventas, data, k){
+  const monthEl = document.getElementById('roasMonth');
+  const valEl = document.getElementById('roasValue');
+  const subEl = document.getElementById('roasSub');
+  const rowsEl = document.getElementById('roasRows');
+  const noteEl = document.getElementById('roasNote');
+  if(!valEl) return;
+  if(monthEl) monthEl.textContent = k ? monthLabel(k) : '—';
+
+  if(!data.gastos && !data.ventasDetalle && !data.ventas){
+    valEl.textContent = '—'; subEl.textContent = ''; rowsEl.innerHTML = '';
+    if(noteEl) noteEl.textContent = ''; return;
+  }
+
+  const ingresos = ventas.filter(v => monthKey(v.date) === k).reduce((s,v) => s + v.ingresos, 0);
+  const adsReal = getGastosAdsMes(data, k);
+  const metaSpend = getCampanas(data).filter(c => monthKey(c.date) === k).reduce((s,c) => s + c.gasto, 0);
+
+  // Fuente del costo: preferimos tu registro real (ya con IGV). Si ese mes no
+  // tiene ads registrados pero Meta sí reporta gasto, estimamos Meta × 1.18.
+  let costo, estimado = false;
+  if(adsReal > 0){ costo = adsReal; }
+  else if(metaSpend > 0){ costo = metaSpend * IGV_FACTOR; estimado = true; }
+  else { costo = 0; }
+
+  if(costo <= 0){
+    valEl.textContent = '—'; subEl.textContent = ''; rowsEl.innerHTML = '';
+    if(noteEl) noteEl.textContent = 'No hay gasto de ads registrado en ' + (k ? monthLabel(k) : 'este mes') + '.';
+    return;
+  }
+
+  const roas = ingresos / costo;
+  valEl.textContent = 'S/ ' + fmt(roas);
+  subEl.textContent = 'vendidos por cada S/ 1 que pusiste en publicidad';
+
+  rowsEl.innerHTML =
+    '<div class="roas-row"><span>Ingresos del mes (todo lo vendido)</span><span class="mono">S/ ' + fmt(ingresos) + '</span></div>' +
+    '<div class="roas-row"><span>Gasto real en ads' + (estimado ? ' (estimado ×1.18)' : ' (lo que te cobró la tarjeta)') + '</span><span class="mono">S/ ' + fmt(costo) + '</span></div>' +
+    (metaSpend > 0 && !estimado ? '<div class="roas-row faint"><span>↳ Meta reporta sin IGV</span><span class="mono">S/ ' + fmt(metaSpend) + '</span></div>' : '');
+
+  if(noteEl){
+    noteEl.textContent = estimado
+      ? 'Este mes no tiene ads en tu app de gastos; se estimó el costo real como el gasto de Meta + 18% de IGV.'
+      : 'Es retorno total: no todas las ventas vienen de los ads, así que tómalo como idea de eficiencia general, no exacto por anuncio.';
+  }
 }
 
 // 7. META ADS — campañas (gasto real por día) + rentabilidad diaria vs ventas.
@@ -734,40 +839,6 @@ function renderHero(ventas, gastos, data, mk){
     }).join('');
 }
 
-// 2. ROAS
-function renderRoas(pub, data){
-  const rowsBox = document.getElementById('adRows');
-  if(!data.publicidad){
-    rowsBox.innerHTML = needCfg('Publicidad');
-    return;
-  }
-  const totGasto = pub.reduce((s,p)=>s+p.gasto,0);
-  const totIngreso = pub.reduce((s,p)=>s+p.ingreso,0);
-  const totVentas = pub.reduce((s,p)=>s+p.ventas,0);
-  const roas = totGasto > 0 ? totIngreso/totGasto : 0;
-
-  const rv = document.getElementById('roasValue');
-  rv.textContent = roas ? roas.toFixed(2) + 'x' : '—';
-  rv.className = 'roas-value mono ' + (roas >= 1 ? 'good' : (totGasto>0 ? 'bad' : ''));
-
-  document.getElementById('adsGasto').textContent = 'S/ ' + fmt(totGasto);
-  document.getElementById('adsIngreso').textContent = 'S/ ' + fmt(totIngreso);
-  document.getElementById('adsVentas').textContent = fmt0(totVentas);
-
-  const last = pub.slice(-8).reverse();
-  rowsBox.innerHTML = last.length === 0
-    ? '<div class="empty">Aún no registras semanas en la pestaña Publicidad.</div>'
-    : last.map(p => {
-        const r = p.gasto > 0 ? p.ingreso/p.gasto : 0;
-        return '<div class="ad-row">' +
-          '<span class="ad-week">' + esc(p.semana) + '</span>' +
-          '<span class="ad-plat">' + esc(p.plataforma) + '</span>' +
-          '<span class="ad-num">S/ ' + fmt(p.gasto) + '</span>' +
-          '<span class="ad-roas ' + (r>=1?'good':'bad') + '">' + r.toFixed(2) + 'x</span>' +
-        '</div>';
-      }).join('');
-}
-
 // 3. PROYECCIÓN
 function renderProyeccion(ventas, stocks, data, mk){
   const extra = document.getElementById('projExtra');
@@ -983,21 +1054,80 @@ function renderMeses(ventas, gastos, data){
 
 // 3b. INVENTARIO — stock de todos los productos, con alerta de poco stock (<5 en rojo).
 const STOCK_UMBRAL = 5;
+// A cuántos días o menos de agotarse consideramos "hay que reponer pronto".
+const REPONER_DIAS = 14;
+// Ventana para medir la velocidad de venta (unidades/día).
+const VELOCIDAD_DIAS = 30;
+
+// Velocidad de venta por producto (unidades/día) en los últimos `dias` días,
+// separando combos ("A + B" = 1 unidad de A y 1 de B). Devuelve un mapa
+// normProducto -> unidades/día, para estimar en cuántos días se agota el stock.
+function getVelocidadVenta(data, dias){
+  const vel = {};
+  if(!data.ventasDetalle) return vel;
+  const cutoff = new Date(); cutoff.setHours(0,0,0,0); cutoff.setDate(cutoff.getDate() - dias);
+  const units = {};
+  getVentasDetalle(data).filter(v => v.date >= cutoff).forEach(v => {
+    splitCombo(v.producto).forEach(p => {
+      const key = normProducto(p);
+      if(key) units[key] = (units[key] || 0) + 1;
+    });
+  });
+  Object.keys(units).forEach(k => { vel[k] = units[k] / dias; });
+  return vel;
+}
+
+// Días estimados hasta agotar el stock de un producto (null si no tuvo ventas
+// recientes, o sea no hay ritmo con qué estimar).
+function diasParaAgotar(stock, velMap, nombre){
+  const v = velMap[normProducto(nombre)];
+  if(!v || v <= 0) return null;
+  return Math.round(stock / v);
+}
+
 function renderStock(stocks, data){
   const box = document.getElementById('stockList');
   const badge = document.getElementById('stockAlertBadge');
   if(!box) return;
   if(!data.stocks){ box.innerHTML = needCfg('Stocks'); if(badge) badge.textContent = ''; return; }
 
-  // Productos con stock, del que menos queda al que más (los urgentes arriba).
-  const conStock = stocks.filter(s => s.stock > 0).sort((a,b) => a.stock - b.stock);
-  const low = conStock.filter(s => s.stock < STOCK_UMBRAL);
+  const vel = getVelocidadVenta(data, VELOCIDAD_DIAS);
+  const conStock = stocks.filter(s => s.stock > 0).map(s => {
+    const dias = diasParaAgotar(s.stock, vel, s.producto);
+    return Object.assign({}, s, {
+      diasAgota: dias,
+      isLow: s.stock < STOCK_UMBRAL,
+      reponer: dias != null && dias <= REPONER_DIAS,
+    });
+  });
+
+  // Orden: primero los que se agotan más pronto (por ritmo real de venta);
+  // los que no tienen ventas recientes (sin estimación) van al final, y entre
+  // esos, el que menos stock tiene primero.
+  conStock.sort((a,b) => {
+    if(a.diasAgota == null && b.diasAgota == null) return a.stock - b.stock;
+    if(a.diasAgota == null) return 1;
+    if(b.diasAgota == null) return -1;
+    return a.diasAgota - b.diasAgota;
+  });
+
+  const low = conStock.filter(s => s.isLow);
+  const reponer = conStock.filter(s => s.reponer);
 
   if(badge){
-    badge.textContent = low.length > 0
-      ? '⚠ ' + low.length + ' con poco stock'
-      : '✓ stock sano';
-    badge.className = 'stock-alert-badge' + (low.length > 0 ? ' alert' : '');
+    // Prioriza avisar de los que se agotan pronto por ritmo de venta (más útil
+    // que solo "poco stock", porque un producto con 8 unidades que vuela puede
+    // ser más urgente que uno con 3 que casi no se vende).
+    if(reponer.length > 0){
+      badge.textContent = '⚠ ' + reponer.length + ' por reponer pronto';
+      badge.className = 'stock-alert-badge alert';
+    } else if(low.length > 0){
+      badge.textContent = '⚠ ' + low.length + ' con poco stock';
+      badge.className = 'stock-alert-badge alert';
+    } else {
+      badge.textContent = '✓ stock sano';
+      badge.className = 'stock-alert-badge';
+    }
   }
 
   if(conStock.length === 0){
@@ -1006,10 +1136,18 @@ function renderStock(stocks, data){
   }
 
   box.innerHTML = conStock.map(s => {
-    const isLow = s.stock < STOCK_UMBRAL;
-    return '<div class="stock-row' + (isLow ? ' low-row' : '') + '">' +
+    let agotaTxt, agotaCls;
+    if(s.diasAgota == null){
+      agotaTxt = 'sin ventas'; agotaCls = 'none';
+    } else if(s.diasAgota <= REPONER_DIAS){
+      agotaTxt = '~' + s.diasAgota + 'd'; agotaCls = 'soon';
+    } else {
+      agotaTxt = '~' + s.diasAgota + 'd'; agotaCls = 'ok';
+    }
+    return '<div class="stock-row' + (s.reponer ? ' reponer-row' : (s.isLow ? ' low-row' : '')) + '">' +
         '<span class="stock-name">' + esc(s.producto) + '</span>' +
-        '<span class="stock-qty' + (isLow ? ' low' : '') + '">' + fmt0(s.stock) + ' und' + (isLow ? ' · poco' : '') + '</span>' +
+        '<span class="stock-agota ' + agotaCls + '">' + agotaTxt + '</span>' +
+        '<span class="stock-qty' + (s.isLow ? ' low' : '') + '">' + fmt0(s.stock) + ' und' + '</span>' +
       '</div>';
   }).join('');
 }
@@ -1600,6 +1738,7 @@ document.getElementById('monthSelect').addEventListener('change', (e) => {
     renderHero(LAST.ventas, LAST.gastos, LAST.data, selectedMonthKey);
     renderProyeccion(LAST.ventas, LAST.stocks, LAST.data, selectedMonthKey);
     renderAds(LAST.data, selectedMonthKey);
+    renderRoas(LAST.ventas, LAST.data, selectedMonthKey);
   }
 });
 
