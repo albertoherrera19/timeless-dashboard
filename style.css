@@ -418,6 +418,28 @@ h1{
 .dsem-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
 .dsem-bar.best .dsem-lbl{color:var(--accent);font-weight:700;}
 
+/* Instagram */
+.ig-user{color:var(--muted);font-weight:600;font-size:12px;}
+.ig-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px;}
+.ig-kpi{background:var(--chip);border:1px solid var(--line);border-radius:12px;padding:12px 10px;display:flex;flex-direction:column;gap:3px;}
+.ig-kpi-val{font-size:22px;font-weight:800;color:var(--bone);font-family:"SFMono-Regular",Consolas,Menlo,monospace;}
+.ig-kpi-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;line-height:1.3;}
+.ig-reach-wrap{margin-top:8px;}
+.ig-reach-bars{padding-top:20px;}
+.ig-media{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:6px;}
+.ig-post{display:flex;flex-direction:column;gap:6px;text-decoration:none;color:inherit;background:var(--chip);border:1px solid var(--line);border-radius:12px;overflow:hidden;padding-bottom:8px;}
+.ig-post:active{background:var(--line);}
+.ig-post-thumb{position:relative;width:100%;aspect-ratio:1/1;background:var(--line);overflow:hidden;}
+.ig-post-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.ig-post-thumb.no-img::after{content:'📷';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:26px;opacity:.4;}
+.ig-post-type{position:absolute;top:6px;left:6px;background:rgba(0,0,0,.72);color:#fff;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:2px 7px;border-radius:6px;}
+.ig-post-cap{font-size:11px;color:var(--bone);padding:0 8px;line-height:1.35;min-height:30px;}
+.ig-post-stats{display:flex;flex-wrap:wrap;gap:8px;padding:0 8px;font-size:10.5px;color:var(--muted);font-weight:600;}
+@media (max-width:560px){
+  .ig-kpis{grid-template-columns:repeat(2,1fr);}
+  .ig-media{grid-template-columns:repeat(2,1fr);}
+}
+
 .months-list{margin-top:14px;border-top:1px dashed var(--line);padding-top:6px;}
 .ml-row{
   display:flex;

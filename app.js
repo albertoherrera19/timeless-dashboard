@@ -1183,6 +1183,95 @@ function renderTop(stocks, data){
    de minutos), esta lee y escribe directo contra el Apps Script vía
    cfg.WEBHOOK_URL: así Alberto ve sus propios cambios al instante desde el
    celular o la PC, sin esperar el ciclo de "Publicar en la web". */
+/* ---------- 6c. Instagram (seguidores, alcance, mejores publicaciones) ----------
+   Lee ?action=instagram del webhook (mismo patrón que Compras): datos que un
+   trigger de Apps Script trae de la API de Instagram cada 8h. Si no hay datos
+   todavía, la tarjeta se queda oculta (no molesta). */
+function loadInstagram(){
+  if(!cfg.WEBHOOK_URL) return;
+  fetch(cfg.WEBHOOK_URL + '?action=instagram&_cb=' + Date.now(), {cache:'no-store'})
+    .then(r => r.json())
+    .then(resp => { if(resp && resp.instagram) renderInstagram(resp.instagram); })
+    .catch(() => {});
+}
+
+function renderInstagram(ig){
+  const card = document.getElementById('igCard');
+  if(!card) return;
+  const tieneData = ig && (ig.seguidores > 0 || (ig.dia && ig.dia.length) || (ig.media && ig.media.length));
+  if(!tieneData){ card.hidden = true; return; }
+  card.hidden = false;
+
+  const userEl = document.getElementById('igUser');
+  if(userEl) userEl.textContent = ig.username ? '· @' + ig.username : '';
+
+  // Crecimiento de seguidores en el período (suma de nuevos por día).
+  const dia = ig.dia || [];
+  const nuevos30 = dia.reduce((s,d) => s + (Number(d.nuevos)||0), 0);
+  const growthEl = document.getElementById('igGrowth');
+  if(growthEl){
+    growthEl.textContent = (nuevos30 >= 0 ? '+' : '') + fmt0(nuevos30) + ' seg. (30d)';
+    growthEl.style.color = nuevos30 < 0 ? 'var(--bad)' : 'var(--accent)';
+  }
+
+  const alcance30 = dia.reduce((s,d) => s + (Number(d.alcance)||0), 0);
+  const visitas30 = dia.reduce((s,d) => s + (Number(d.visitas)||0), 0);
+  document.getElementById('igKpis').innerHTML =
+    igKpi('Seguidores', fmt0(ig.seguidores||0)) +
+    igKpi('Alcance 30d', fmt0(alcance30)) +
+    igKpi('Visitas al perfil 30d', fmt0(visitas30)) +
+    igKpi('Publicaciones', fmt0(ig.publicaciones||0));
+
+  // Barras de alcance de los últimos 14 días.
+  const ult = dia.slice(-14);
+  const barsBox = document.getElementById('igReachBars');
+  if(ult.length === 0){
+    barsBox.innerHTML = '<div class="empty">Aún sin datos diarios.</div>';
+  } else {
+    const maxA = Math.max(...ult.map(d => Number(d.alcance)||0), 1);
+    barsBox.innerHTML = ult.map(d => {
+      const a = Number(d.alcance)||0;
+      const h = Math.max(a/maxA*100, 3);
+      const dd = new Date(d.fecha);
+      const lbl = isNaN(dd) ? '' : dd.getDate();
+      return '<div class="dsem-bar">' +
+          '<div class="dsem-col-wrap"><div class="dsem-col" style="height:' + h + '%">' +
+            '<span class="dsem-val">' + fmt0(a) + '</span>' +
+          '</div></div>' +
+          '<div class="dsem-lbl">' + lbl + '</div>' +
+        '</div>';
+    }).join('');
+  }
+
+  // Mejores publicaciones (ya vienen ordenadas por interacción del Apps Script).
+  const media = (ig.media || []).slice(0, 9);
+  const mediaBox = document.getElementById('igMedia');
+  if(media.length === 0){
+    mediaBox.innerHTML = '<div class="empty">Aún no hay publicaciones analizadas.</div>';
+  } else {
+    mediaBox.innerHTML = media.map(m => {
+      const thumb = m.thumbnail
+        ? '<img src="' + esc(m.thumbnail) + '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'no-img\')">'
+        : '';
+      const cap = m.caption ? esc(m.caption.slice(0, 70)) + (m.caption.length > 70 ? '…' : '') : '(sin texto)';
+      return '<a class="ig-post" href="' + esc(m.permalink) + '" target="_blank" rel="noopener">' +
+          '<div class="ig-post-thumb">' + thumb + '<span class="ig-post-type">' + esc(m.tipo) + '</span></div>' +
+          '<div class="ig-post-cap">' + cap + '</div>' +
+          '<div class="ig-post-stats">' +
+            '<span title="Me gusta">❤ ' + fmt0(m.likes) + '</span>' +
+            '<span title="Comentarios">💬 ' + fmt0(m.comentarios) + '</span>' +
+            (m.alcance ? '<span title="Alcance">👁 ' + fmt0(m.alcance) + '</span>' : '') +
+            (m.guardados ? '<span title="Guardados">🔖 ' + fmt0(m.guardados) + '</span>' : '') +
+          '</div>' +
+        '</a>';
+    }).join('');
+  }
+}
+
+function igKpi(label, value){
+  return '<div class="ig-kpi"><span class="ig-kpi-val">' + value + '</span><span class="ig-kpi-lbl">' + label + '</span></div>';
+}
+
 let compras = [];
 
 function loadCompras(){
@@ -1777,3 +1866,4 @@ try{ savedTheme = localStorage.getItem(THEME_KEY) || 'negro'; }catch(e){}
 applyTheme(savedTheme);
 loadAll();
 loadCompras();
+loadInstagram();
