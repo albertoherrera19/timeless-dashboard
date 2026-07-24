@@ -62,7 +62,8 @@ h1{
   height:38px;
   border-radius:10px;
   padding:0 10px;
-  font-size:13px;
+  /* 16px: por debajo de eso, Safari iOS hace zoom forzado al enfocar el campo. */
+  font-size:16px;
   font-weight:700;
   cursor:pointer;
   max-width:180px;
@@ -605,7 +606,8 @@ h1{
   height:38px;
   border-radius:10px;
   padding:0 10px;
-  font-size:13px;
+  /* 16px: evita el zoom forzado de Safari iOS al enfocar el campo. */
+  font-size:16px;
   font-weight:700;
   cursor:pointer;
   margin-bottom:14px;
@@ -668,7 +670,8 @@ h1{
 .cf-label:first-child{margin-top:0;}
 .cf-input{
   background:var(--chip);border:1px solid var(--line);color:var(--bone);
-  border-radius:10px;padding:10px 12px;font-size:14px;width:100%;
+  /* 16px: evita el zoom forzado de Safari iOS al enfocar el campo. */
+  border-radius:10px;padding:10px 12px;font-size:16px;width:100%;
 }
 .cf-input:focus{outline:none;border-color:var(--accent);}
 .cf-textarea{min-height:70px;resize:vertical;font-family:inherit;}
