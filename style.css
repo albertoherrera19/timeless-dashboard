@@ -11,6 +11,12 @@
   --bad:#fb7185;
 }
 *{box-sizing:border-box;}
+html{
+  /* Evita que Safari/iOS agrande el texto por su cuenta (un "zoom" distinto
+     al pellizco manual, que a veces se activa solo al abrir la app). */
+  -webkit-text-size-adjust:100%;
+  text-size-adjust:100%;
+}
 body{
   margin:0;
   background:var(--bg);
@@ -421,7 +427,9 @@ h1{
 .vrec-row.vrec-record .vrec-day::after{content:' 🏆';}
 
 /* Meta del mes */
-.metames-config{display:flex;flex-direction:column;gap:6px;margin-top:12px;max-width:280px;}
+.metames-config{display:flex;flex-direction:column;gap:6px;margin-top:12px;max-width:340px;}
+.metames-config-row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+.metames-config-row .cf-label{margin:0;}
 .metames-body{margin-top:14px;}
 .metames-empty{font-size:13px;color:var(--muted);padding:6px 0;}
 .metames-big{display:flex;justify-content:space-between;align-items:baseline;gap:10px;}

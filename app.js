@@ -487,6 +487,12 @@ try{ metaMesModo = localStorage.getItem('timeless_metames_modo') || 'dia'; }catc
 if(['dia','bloque','mes'].indexOf(metaMesModo) === -1) metaMesModo = 'dia';
 let metaMesValor = 0;
 try{ metaMesValor = Number(localStorage.getItem('timeless_metames_valor')) || 0; }catch(e){}
+// Qué métrica mostrar contra la meta: 'ventas' (lo que escribes arriba, tal cual)
+// o 'ganancia' (líquida, estimada según tu margen real del mes en curso — no es
+// una meta aparte, solo te dice a cuánto equivale tu meta de ventas en líquido).
+let metaMesMetrica = 'ventas';
+try{ metaMesMetrica = localStorage.getItem('timeless_metames_metrica') || 'ventas'; }catch(e){}
+if(['ventas','ganancia'].indexOf(metaMesMetrica) === -1) metaMesMetrica = 'ventas';
 
 function renderMetaMes(data){
   const bodyEl = document.getElementById('metaMesBody');
@@ -495,46 +501,56 @@ function renderMetaMes(data){
   if(!bodyEl) return;
   document.querySelectorAll('#metaMesToggle button').forEach(b =>
     b.classList.toggle('active', b.getAttribute('data-modo') === metaMesModo));
+  document.querySelectorAll('#metaMesMetricaToggle button').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-metrica') === metaMesMetrica));
   if(input && document.activeElement !== input) input.value = metaMesValor || '';
 
   const hoy = new Date();
-  if(monthLbl) monthLbl.textContent = cap(hoy.toLocaleDateString('es-PE', {month:'long'}));
+  const mesNombre = cap(hoy.toLocaleDateString('es-PE', {month:'long'}));
+  if(monthLbl) monthLbl.textContent = mesNombre;
 
   if(!metaMesValor || metaMesValor <= 0){
     bodyEl.innerHTML = '<div class="metames-empty">Escribe arriba cuánto quieres vender este mes para ver tu avance.</div>';
     return;
   }
 
-  const vendidoMes = data.ventasDetalle ?
-    getVentasDetalle(data).filter(v => monthKey(v.date) === monthKey(hoy)).reduce((s,v) => s + v.venta, 0) : 0;
+  const detMes = data.ventasDetalle ? getVentasDetalle(data).filter(v => monthKey(v.date) === monthKey(hoy)) : [];
+  const vendidoMes = detMes.reduce((s,v) => s + v.venta, 0);
+  const gananciaMes = detMes.reduce((s,v) => s + v.utilidad, 0);
+  // Margen real de lo que llevas vendido este mes; si aún no hay ventas, se usa 0.6 como estimado.
+  const margen = vendidoMes > 0 ? gananciaMes / vendidoMes : 0.6;
 
   const diaHoy = hoy.getDate();
   const diasDelMes = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0).getDate();
   const diasRestantes = diasDelMes - diaHoy + 1;
 
-  let metaPeriodo, vendidoPeriodo, etiqueta, restanPeriodo;
+  let metaPeriodoVentas, etiqueta, restanPeriodo, detPeriodo;
   if(metaMesModo === 'dia'){
-    metaPeriodo = metaMesValor / diasDelMes;
-    vendidoPeriodo = data.ventasDetalle ?
-      getVentasDetalle(data).filter(v => dayKey(v.date) === dayKey(hoy)).reduce((s,v) => s + v.venta, 0) : 0;
+    metaPeriodoVentas = metaMesValor / diasDelMes;
+    detPeriodo = detMes.filter(v => dayKey(v.date) === dayKey(hoy));
     etiqueta = 'hoy';
     restanPeriodo = 1;
   } else if(metaMesModo === 'bloque'){
     const bloqueIdx = Math.min(2, Math.floor((diaHoy - 1) / 10)); // 0: 1-10, 1: 11-20, 2: 21-fin
     const bloqueDesde = bloqueIdx * 10 + 1;
     const bloqueHasta = bloqueIdx === 2 ? diasDelMes : bloqueIdx * 10 + 10;
-    metaPeriodo = metaMesValor / 3;
-    vendidoPeriodo = data.ventasDetalle ?
-      getVentasDetalle(data).filter(v => monthKey(v.date) === monthKey(hoy) && v.date.getDate() >= bloqueDesde && v.date.getDate() <= bloqueHasta)
-        .reduce((s,v) => s + v.venta, 0) : 0;
+    metaPeriodoVentas = metaMesValor / 3;
+    detPeriodo = detMes.filter(v => v.date.getDate() >= bloqueDesde && v.date.getDate() <= bloqueHasta);
     etiqueta = 'del ' + bloqueDesde + ' al ' + bloqueHasta;
     restanPeriodo = bloqueHasta - diaHoy + 1;
   } else {
-    metaPeriodo = metaMesValor;
-    vendidoPeriodo = vendidoMes;
+    metaPeriodoVentas = metaMesValor;
+    detPeriodo = detMes;
     etiqueta = 'del mes';
     restanPeriodo = diasRestantes;
   }
+
+  const vendidoPeriodoVentas = detPeriodo.reduce((s,v) => s + v.venta, 0);
+  const gananciaPeriodo = detPeriodo.reduce((s,v) => s + v.utilidad, 0);
+
+  const esGanancia = metaMesMetrica === 'ganancia';
+  const metaPeriodo = esGanancia ? metaPeriodoVentas * margen : metaPeriodoVentas;
+  const vendidoPeriodo = esGanancia ? gananciaPeriodo : vendidoPeriodoVentas;
 
   const faltaPeriodo = Math.max(0, metaPeriodo - vendidoPeriodo);
   const pct = Math.min(100, metaPeriodo > 0 ? vendidoPeriodo / metaPeriodo * 100 : 0);
@@ -555,9 +571,17 @@ function renderMetaMes(data){
       (restanPeriodo > 1 ? ' — unos S/ ' + fmt0(porDiaFalta) + ' por día para llegar.' : '.') + '</div>';
   }
 
-  html += '<div class="metames-note">Mes completo: llevas S/ ' + fmt0(vendidoMes) + ' de S/ ' + fmt0(metaMesValor) +
-    ' (' + fmt0(Math.min(100, metaMesValor>0?vendidoMes/metaMesValor*100:0)) + '%), a ' + diasRestantes + ' día(s) de terminar ' +
-    cap(hoy.toLocaleDateString('es-PE', {month:'long'})) + '.</div>';
+  if(esGanancia){
+    html += '<div class="metames-note">Estimado según tu margen de ' + fmt0(margen*100) + '% este mes: tu meta de S/ ' +
+      fmt0(metaMesValor) + ' en ventas equivale a unos S/ ' + fmt0(metaMesValor*margen) +
+      ' en ganancia líquida. No es una meta aparte, se ajusta sola con tu margen real.</div>';
+    html += '<div class="metames-note">Mes completo: llevas S/ ' + fmt0(gananciaMes) + ' en ganancia líquida (de S/ ' +
+      fmt0(vendidoMes) + ' vendido), a ' + diasRestantes + ' día(s) de terminar ' + mesNombre + '.</div>';
+  } else {
+    html += '<div class="metames-note">Mes completo: llevas S/ ' + fmt0(vendidoMes) + ' de S/ ' + fmt0(metaMesValor) +
+      ' (' + fmt0(Math.min(100, metaMesValor>0?vendidoMes/metaMesValor*100:0)) + '%), a ' + diasRestantes + ' día(s) de terminar ' +
+      mesNombre + '.</div>';
+  }
 
   bodyEl.innerHTML = html;
 }
@@ -2043,6 +2067,15 @@ document.getElementById('metaMesToggle').addEventListener('click', (e) => {
 document.getElementById('metaMesInput').addEventListener('input', (e) => {
   metaMesValor = Number(e.target.value) || 0;
   try{ localStorage.setItem('timeless_metames_valor', metaMesValor); }catch(err){}
+  if(LAST) renderMetaMes(LAST.data);
+});
+
+// Meta del mes: ver el avance en Ventas o en Ganancia líquida (estimada por margen).
+document.getElementById('metaMesMetricaToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-metrica]');
+  if(!btn) return;
+  metaMesMetrica = btn.getAttribute('data-metrica');
+  try{ localStorage.setItem('timeless_metames_metrica', metaMesMetrica); }catch(err){}
   if(LAST) renderMetaMes(LAST.data);
 });
 

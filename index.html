@@ -59,6 +59,29 @@
     <div class="receipt" id="heroReceipt"></div>
   </section>
 
+  <!-- 1b. META DEL MES (meta de ventas configurable, para motivarte) -->
+  <section class="card span2" id="metaMesCard">
+    <div class="hero-top">
+      <div class="section-label">Meta del mes</div>
+      <div class="util-toggle" id="metaMesToggle">
+        <button type="button" data-modo="dia">Por día</button>
+        <button type="button" data-modo="bloque">Por 10 días</button>
+        <button type="button" data-modo="mes">Por mes</button>
+      </div>
+    </div>
+    <div class="metames-config">
+      <div class="metames-config-row">
+        <label class="cf-label" for="metaMesInput">Tu meta de ventas para <span id="metaMesMonthLabel">este mes</span> (S/)</label>
+        <div class="util-toggle" id="metaMesMetricaToggle">
+          <button type="button" data-metrica="ventas">Ventas</button>
+          <button type="button" data-metrica="ganancia">Ganancia líquida</button>
+        </div>
+      </div>
+      <input type="number" class="cf-input" id="metaMesInput" inputmode="decimal" placeholder="Ej. 5000" min="0" step="50">
+    </div>
+    <div class="metames-body" id="metaMesBody"></div>
+  </section>
+
   <!-- 2. META ADS · campañas + rentabilidad -->
   <section class="card span2" id="adsDailyCard">
     <div class="hero-top">
@@ -152,23 +175,6 @@
     </div>
     <div class="vrec-legend"><span><i class="vrec-dot"></i>Ventas</span><span><i class="vrec-dot accent"></i>Ganancia líquida</span></div>
     <div class="vrec-rows" id="ventasRecRows"></div>
-  </section>
-
-  <!-- 6a2. META DEL MES (meta de ventas configurable, para motivarte) -->
-  <section class="card span2" id="metaMesCard">
-    <div class="hero-top">
-      <div class="section-label">Meta del mes</div>
-      <div class="util-toggle" id="metaMesToggle">
-        <button type="button" data-modo="dia">Por día</button>
-        <button type="button" data-modo="bloque">Por 10 días</button>
-        <button type="button" data-modo="mes">Por mes</button>
-      </div>
-    </div>
-    <div class="metames-config">
-      <label class="cf-label" for="metaMesInput">Tu meta de ventas para <span id="metaMesMonthLabel">este mes</span> (S/)</label>
-      <input type="number" class="cf-input" id="metaMesInput" inputmode="decimal" placeholder="Ej. 5000" min="0" step="50">
-    </div>
-    <div class="metames-body" id="metaMesBody"></div>
   </section>
 
   <!-- 6b. MEJOR DÍA DE LA SEMANA (últimos 90 días) -->
