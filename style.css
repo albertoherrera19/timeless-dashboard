@@ -423,7 +423,7 @@ h1{
 
 /* Instagram */
 .ig-user{color:var(--muted);font-weight:600;font-size:12px;}
-.ig-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px;}
+.ig-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:14px;}
 .ig-kpi{background:var(--chip);border:1px solid var(--line);border-radius:12px;padding:12px 10px;display:flex;flex-direction:column;gap:3px;}
 .ig-kpi-val{font-size:22px;font-weight:800;color:var(--bone);font-family:"SFMono-Regular",Consolas,Menlo,monospace;}
 .ig-kpi-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;line-height:1.3;}
@@ -439,7 +439,6 @@ h1{
 .ig-post-cap{font-size:11px;color:var(--bone);padding:0 8px;line-height:1.35;min-height:30px;}
 .ig-post-stats{display:flex;flex-wrap:wrap;gap:8px;padding:0 8px;font-size:10.5px;color:var(--muted);font-weight:600;}
 @media (max-width:560px){
-  .ig-kpis{grid-template-columns:repeat(2,1fr);}
   .ig-media{grid-template-columns:repeat(2,1fr);}
 }
 

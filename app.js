@@ -1232,7 +1232,9 @@ function renderInstagram(ig){
   document.getElementById('igKpis').innerHTML =
     igKpi('Seguidores', fmt0(ig.seguidores||0)) +
     igKpi('Alcance 30d', fmt0(alcance30)) +
-    igKpi('Visitas al perfil 30d', fmt0(visitas30)) +
+    // Meta no siempre devuelve "visitas al perfil"; si viene 0 no la mostramos
+    // (un 0 confundiría). Si algún día la API la trae, aparece sola.
+    (visitas30 > 0 ? igKpi('Visitas al perfil 30d', fmt0(visitas30)) : '') +
     igKpi('Publicaciones', fmt0(ig.publicaciones||0));
 
   // Barras de alcance de los últimos 14 días.
@@ -1264,7 +1266,7 @@ function renderInstagram(ig){
   } else {
     mediaBox.innerHTML = media.map(m => {
       const thumb = m.thumbnail
-        ? '<img src="' + esc(m.thumbnail) + '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'no-img\')">'
+        ? '<img src="' + esc(m.thumbnail) + '" alt="" referrerpolicy="no-referrer" onerror="this.parentElement.classList.add(\'no-img\')">'
         : '';
       const cap = m.caption ? esc(m.caption.slice(0, 70)) + (m.caption.length > 70 ? '…' : '') : '(sin texto)';
       return '<a class="ig-post" href="' + esc(m.permalink) + '" target="_blank" rel="noopener">' +
