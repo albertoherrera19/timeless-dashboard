@@ -423,17 +423,37 @@ let ventasRecModo = 'semana';
 try{ ventasRecModo = localStorage.getItem('timeless_ventasrec_modo') || 'semana'; }catch(e){}
 if(['semana','7','15'].indexOf(ventasRecModo) === -1) ventasRecModo = 'semana';
 
+// Fecha de inicio de un período de "Ventas recientes" ('semana' = desde el lunes, o N días).
+function vrecDesde(modo, hoy){
+  const d = new Date(hoy);
+  if(modo === 'semana'){
+    const dow = d.getDay();
+    d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1)); // retrocede hasta el lunes
+  } else {
+    d.setDate(d.getDate() - (Number(modo) - 1));
+  }
+  return d;
+}
+const VREC_LABELS = {semana:'esta semana', '7':'estos 7 días', '15':'estos 15 días'};
+
 function renderVentasRecientes(data){
   const box = document.getElementById('ventasRecRows');
   const recordEl = document.getElementById('ventasRecRecord');
+  const totalesEl = document.getElementById('ventasRecTotales');
   if(!box) return;
   document.querySelectorAll('#ventasRecToggle button').forEach(b =>
     b.classList.toggle('active', b.getAttribute('data-modo') === ventasRecModo));
-  if(!data.ventasDetalle){ box.innerHTML = needCfg('VentasDetalle'); if(recordEl) recordEl.textContent=''; return; }
+  if(!data.ventasDetalle){
+    box.innerHTML = needCfg('VentasDetalle');
+    if(recordEl) recordEl.textContent='';
+    if(totalesEl) totalesEl.innerHTML='';
+    return;
+  }
   const det = getVentasDetalle(data);
   if(det.length === 0){
     box.innerHTML = '<div class="empty">Sin ventas registradas todavía.</div>';
     if(recordEl) recordEl.textContent = '';
+    if(totalesEl) totalesEl.innerHTML = '';
     return;
   }
 
@@ -449,15 +469,7 @@ function renderVentasRecientes(data){
   Object.values(porDia).forEach(d => { if(!record || d.venta > record.venta) record = d; });
 
   const hoy = new Date(); hoy.setHours(0,0,0,0);
-  let desde;
-  if(ventasRecModo === 'semana'){
-    desde = new Date(hoy);
-    const dow = desde.getDay();
-    desde.setDate(desde.getDate() - (dow === 0 ? 6 : dow - 1)); // retrocede hasta el lunes
-  } else {
-    desde = new Date(hoy);
-    desde.setDate(desde.getDate() - (Number(ventasRecModo) - 1));
-  }
+  const desde = vrecDesde(ventasRecModo, hoy);
 
   const dias = [];
   for(let d = new Date(desde); d <= hoy; d.setDate(d.getDate()+1)){
@@ -477,6 +489,19 @@ function renderVentasRecientes(data){
         '<span class="vrec-nums"><span class="mono">S/ ' + fmt0(d.venta) + '</span><span class="mono accent">+S/ ' + fmt0(d.ganancia) + '</span></span>' +
       '</div>';
   }).join('');
+
+  // Totales de ventas de los 3 períodos, siempre visibles sin importar cuál está seleccionado.
+  if(totalesEl){
+    totalesEl.innerHTML = ['semana','7','15'].map(modo => {
+      const desdeM = vrecDesde(modo, hoy);
+      let suma = 0;
+      for(let d = new Date(desdeM); d <= hoy; d.setDate(d.getDate()+1)){
+        const found = porDia[dayKey(d)];
+        if(found) suma += found.venta;
+      }
+      return '<span>Ventas ' + VREC_LABELS[modo] + ': <b>S/ ' + fmt0(suma) + '</b></span>';
+    }).join('');
+  }
 }
 
 // 6a2. META DEL MES — meta de ventas configurable (motivacional, no viene del Excel).

@@ -175,6 +175,7 @@
     </div>
     <div class="vrec-legend"><span><i class="vrec-dot"></i>Ventas</span><span><i class="vrec-dot accent"></i>Ganancia líquida</span></div>
     <div class="vrec-rows" id="ventasRecRows"></div>
+    <div class="vrec-totales" id="ventasRecTotales"></div>
   </section>
 
   <!-- 6b. MEJOR DÍA DE LA SEMANA (últimos 90 días) -->
@@ -236,22 +237,34 @@
 <script src="config.js"></script>
 <script src="app.js"></script>
 <script>
-  // Safari/iOS a veces "recuerda" el zoom con el que cerraste la app la última
-  // vez (sobre todo instalada como PWA) y la abre ya zoomeada. Esto la resetea
-  // a escala 1 cada vez que abres o vuelves a la app; el zoom manual con los
-  // dedos sigue funcionando igual, esto no lo bloquea.
+  // Safari/iOS a veces abre la app (sobre todo instalada como ícono en la
+  // pantalla de inicio) con un zoom "congelado" que no corresponde al tamaño
+  // real de pantalla — bug conocido de iOS en apps standalone. Se corrige
+  // forzando un recálculo: togglear el viewport, y si está en modo standalone,
+  // togglear un zoom de CSS de ida y vuelta (no es el zoom del usuario, no
+  // afecta el pellizco manual, que sigue funcionando igual).
   (function () {
     var vp = document.querySelector('meta[name="viewport"]');
-    if (!vp) return;
     var base = 'width=device-width, initial-scale=1.0, viewport-fit=cover';
-    function resetZoom() {
+    function resetZoomMeta() {
+      if (!vp) return;
       vp.setAttribute('content', base + ', maximum-scale=1.0');
       setTimeout(function () { vp.setAttribute('content', base); }, 350);
+    }
+    function resetZoomStandalone() {
+      if (!window.navigator.standalone) return;
+      document.documentElement.style.zoom = '0.999';
+      setTimeout(function () { document.documentElement.style.zoom = '1'; }, 60);
+    }
+    function resetZoom() {
+      resetZoomMeta();
+      resetZoomStandalone();
     }
     window.addEventListener('pageshow', resetZoom);
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden) resetZoom();
     });
+    resetZoom();
   })();
 
   if ('serviceWorker' in navigator) {
