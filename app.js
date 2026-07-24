@@ -373,13 +373,19 @@ function renderAll(data, missing){
   document.getElementById('footTime').textContent = new Date().getFullYear();
 }
 
-// 6. MÁS VENDIDOS (últimos 30 días) — parsea combos separando por "+".
+// 6. MÁS VENDIDOS (30 días / 15 días / 1 semana, elegible) — parsea combos separando por "+".
+let recentDias = 30;
+try{ recentDias = Number(localStorage.getItem('timeless_recent_dias')) || 30; }catch(e){}
+if([30,15,7].indexOf(recentDias) === -1) recentDias = 30;
+
 function renderRecent(data){
   const box = document.getElementById('recentRows');
   if(!box) return;
+  document.querySelectorAll('#recentToggle button').forEach(b =>
+    b.classList.toggle('active', Number(b.getAttribute('data-dias')) === recentDias));
   if(!data.ventasDetalle){ box.innerHTML = needCfg('VentasDetalle'); return; }
   const det = getVentasDetalle(data);
-  const cutoff = new Date(); cutoff.setHours(0,0,0,0); cutoff.setDate(cutoff.getDate() - 30);
+  const cutoff = new Date(); cutoff.setHours(0,0,0,0); cutoff.setDate(cutoff.getDate() - recentDias);
   const agg = {}; // key normalizado -> {name, units, revenue}
   det.filter(v => v.date >= cutoff).forEach(v => {
     const pieces = splitCombo(v.producto);
@@ -394,7 +400,7 @@ function renderRecent(data){
     });
   });
   const rows = Object.values(agg).sort((a,b) => b.units - a.units || b.revenue - a.revenue).slice(0, 12);
-  if(rows.length === 0){ box.innerHTML = '<div class="empty">Sin ventas en los últimos 30 días.</div>'; return; }
+  if(rows.length === 0){ box.innerHTML = '<div class="empty">Sin ventas en los últimos ' + recentDias + ' días.</div>'; return; }
   const max = rows[0].units;
   box.innerHTML = rows.map((r, i) =>
     '<div class="top-row">' +
@@ -1616,6 +1622,15 @@ document.getElementById('mesesToggle').addEventListener('click', (e) => {
   mesesMetric = btn.getAttribute('data-metric');
   try{ localStorage.setItem('timeless_meses_metric', mesesMetric); }catch(err){}
   if(LAST) renderMeses(LAST.ventas, LAST.gastos, LAST.data);
+});
+
+// Más vendidos: elegir el período (30 días / 15 días / 1 semana).
+document.getElementById('recentToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-dias]');
+  if(!btn) return;
+  recentDias = Number(btn.getAttribute('data-dias'));
+  try{ localStorage.setItem('timeless_recent_dias', recentDias); }catch(err){}
+  if(LAST) renderRecent(LAST.data);
 });
 
 let savedTheme = 'negro';
