@@ -140,6 +140,37 @@
     <div class="top-rows" id="recentRows"></div>
   </section>
 
+  <!-- 6a. VENTAS RECIENTES (día a día: ventas y ganancia líquida) -->
+  <section class="card span2" id="ventasRecCard">
+    <div class="hero-top">
+      <div class="section-label">Ventas recientes <span class="dsem-lead" id="ventasRecRecord"></span></div>
+      <div class="util-toggle" id="ventasRecToggle">
+        <button type="button" data-modo="semana">Esta semana</button>
+        <button type="button" data-modo="7">7 días</button>
+        <button type="button" data-modo="15">15 días</button>
+      </div>
+    </div>
+    <div class="vrec-legend"><span><i class="vrec-dot"></i>Ventas</span><span><i class="vrec-dot accent"></i>Ganancia líquida</span></div>
+    <div class="vrec-rows" id="ventasRecRows"></div>
+  </section>
+
+  <!-- 6a2. META DEL MES (meta de ventas configurable, para motivarte) -->
+  <section class="card span2" id="metaMesCard">
+    <div class="hero-top">
+      <div class="section-label">Meta del mes</div>
+      <div class="util-toggle" id="metaMesToggle">
+        <button type="button" data-modo="dia">Por día</button>
+        <button type="button" data-modo="bloque">Por 10 días</button>
+        <button type="button" data-modo="mes">Por mes</button>
+      </div>
+    </div>
+    <div class="metames-config">
+      <label class="cf-label" for="metaMesInput">Tu meta de ventas para <span id="metaMesMonthLabel">este mes</span> (S/)</label>
+      <input type="number" class="cf-input" id="metaMesInput" inputmode="decimal" placeholder="Ej. 5000" min="0" step="50">
+    </div>
+    <div class="metames-body" id="metaMesBody"></div>
+  </section>
+
   <!-- 6b. MEJOR DÍA DE LA SEMANA (últimos 90 días) -->
   <section class="card span2" id="diaSemanaCard">
     <div class="hero-top">
@@ -199,6 +230,24 @@
 <script src="config.js"></script>
 <script src="app.js"></script>
 <script>
+  // Safari/iOS a veces "recuerda" el zoom con el que cerraste la app la última
+  // vez (sobre todo instalada como PWA) y la abre ya zoomeada. Esto la resetea
+  // a escala 1 cada vez que abres o vuelves a la app; el zoom manual con los
+  // dedos sigue funcionando igual, esto no lo bloquea.
+  (function () {
+    var vp = document.querySelector('meta[name="viewport"]');
+    if (!vp) return;
+    var base = 'width=device-width, initial-scale=1.0, viewport-fit=cover';
+    function resetZoom() {
+      vp.setAttribute('content', base + ', maximum-scale=1.0');
+      setTimeout(function () { vp.setAttribute('content', base); }, 350);
+    }
+    window.addEventListener('pageshow', resetZoom);
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) resetZoom();
+    });
+  })();
+
   if ('serviceWorker' in navigator) {
     var swRefreshing = false;
     var hadController = !!navigator.serviceWorker.controller;

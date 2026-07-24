@@ -369,6 +369,8 @@ function renderAll(data, missing){
   renderMeses(ventas, gastos, data);
   renderTop(stocks, data);
   renderRecent(data);
+  renderVentasRecientes(data);
+  renderMetaMes(data);
   renderDiaSemana(data);
   renderAds(data, selectedMonthKey);
   renderRoas(ventas, data, selectedMonthKey);
@@ -413,6 +415,151 @@ function renderRecent(data){
     '</div>' +
     '<div class="top-bar"><div class="top-bar-fill" style="width:' + (r.units/max*100) + '%"></div></div>'
   ).join('');
+}
+
+// 6a. VENTAS RECIENTES — ventas y ganancia líquida día a día (esta semana / 7 / 15 días),
+// con el récord histórico de venta en un día destacado como referencia motivacional.
+let ventasRecModo = 'semana';
+try{ ventasRecModo = localStorage.getItem('timeless_ventasrec_modo') || 'semana'; }catch(e){}
+if(['semana','7','15'].indexOf(ventasRecModo) === -1) ventasRecModo = 'semana';
+
+function renderVentasRecientes(data){
+  const box = document.getElementById('ventasRecRows');
+  const recordEl = document.getElementById('ventasRecRecord');
+  if(!box) return;
+  document.querySelectorAll('#ventasRecToggle button').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-modo') === ventasRecModo));
+  if(!data.ventasDetalle){ box.innerHTML = needCfg('VentasDetalle'); if(recordEl) recordEl.textContent=''; return; }
+  const det = getVentasDetalle(data);
+  if(det.length === 0){
+    box.innerHTML = '<div class="empty">Sin ventas registradas todavía.</div>';
+    if(recordEl) recordEl.textContent = '';
+    return;
+  }
+
+  // Total por día (todo el histórico), para saber tu récord de venta en un día.
+  const porDia = {};
+  det.forEach(v => {
+    const key = dayKey(v.date);
+    if(!porDia[key]) porDia[key] = {date:v.date, venta:0, ganancia:0};
+    porDia[key].venta += v.venta;
+    porDia[key].ganancia += v.utilidad;
+  });
+  let record = null;
+  Object.values(porDia).forEach(d => { if(!record || d.venta > record.venta) record = d; });
+
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  let desde;
+  if(ventasRecModo === 'semana'){
+    desde = new Date(hoy);
+    const dow = desde.getDay();
+    desde.setDate(desde.getDate() - (dow === 0 ? 6 : dow - 1)); // retrocede hasta el lunes
+  } else {
+    desde = new Date(hoy);
+    desde.setDate(desde.getDate() - (Number(ventasRecModo) - 1));
+  }
+
+  const dias = [];
+  for(let d = new Date(desde); d <= hoy; d.setDate(d.getDate()+1)){
+    const found = porDia[dayKey(d)];
+    dias.push({date:new Date(d), venta: found ? found.venta : 0, ganancia: found ? found.ganancia : 0});
+  }
+
+  if(recordEl) recordEl.textContent = '🏆 Récord: S/ ' + fmt0(record.venta) + ' (' + fmtDateShort(record.date) + ')';
+
+  const maxRef = Math.max(record.venta, ...dias.map(d => d.venta), 1);
+  box.innerHTML = dias.map(d => {
+    const h = d.venta > 0 ? Math.max(d.venta / maxRef * 100, 3) : 0;
+    const esRecord = record.venta > 0 && dayKey(d.date) === dayKey(record.date);
+    return '<div class="vrec-row' + (esRecord ? ' vrec-record' : '') + '">' +
+        '<span class="vrec-day">' + DSEM_LABELS[d.date.getDay()] + ' ' + String(d.date.getDate()).padStart(2,'0') + '</span>' +
+        '<span class="vrec-bar-wrap"><div class="vrec-bar" style="width:' + h + '%"></div></span>' +
+        '<span class="vrec-nums"><span class="mono">S/ ' + fmt0(d.venta) + '</span><span class="mono accent">+S/ ' + fmt0(d.ganancia) + '</span></span>' +
+      '</div>';
+  }).join('');
+}
+
+// 6a2. META DEL MES — meta de ventas configurable (motivacional, no viene del Excel).
+// Se guarda en localStorage y se compara contra los ingresos reales del mes en curso
+// (VentasDetalle), repartida por día, por bloques de 10 días o por el mes completo.
+let metaMesModo = 'dia';
+try{ metaMesModo = localStorage.getItem('timeless_metames_modo') || 'dia'; }catch(e){}
+if(['dia','bloque','mes'].indexOf(metaMesModo) === -1) metaMesModo = 'dia';
+let metaMesValor = 0;
+try{ metaMesValor = Number(localStorage.getItem('timeless_metames_valor')) || 0; }catch(e){}
+
+function renderMetaMes(data){
+  const bodyEl = document.getElementById('metaMesBody');
+  const input = document.getElementById('metaMesInput');
+  const monthLbl = document.getElementById('metaMesMonthLabel');
+  if(!bodyEl) return;
+  document.querySelectorAll('#metaMesToggle button').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-modo') === metaMesModo));
+  if(input && document.activeElement !== input) input.value = metaMesValor || '';
+
+  const hoy = new Date();
+  if(monthLbl) monthLbl.textContent = cap(hoy.toLocaleDateString('es-PE', {month:'long'}));
+
+  if(!metaMesValor || metaMesValor <= 0){
+    bodyEl.innerHTML = '<div class="metames-empty">Escribe arriba cuánto quieres vender este mes para ver tu avance.</div>';
+    return;
+  }
+
+  const vendidoMes = data.ventasDetalle ?
+    getVentasDetalle(data).filter(v => monthKey(v.date) === monthKey(hoy)).reduce((s,v) => s + v.venta, 0) : 0;
+
+  const diaHoy = hoy.getDate();
+  const diasDelMes = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0).getDate();
+  const diasRestantes = diasDelMes - diaHoy + 1;
+
+  let metaPeriodo, vendidoPeriodo, etiqueta, restanPeriodo;
+  if(metaMesModo === 'dia'){
+    metaPeriodo = metaMesValor / diasDelMes;
+    vendidoPeriodo = data.ventasDetalle ?
+      getVentasDetalle(data).filter(v => dayKey(v.date) === dayKey(hoy)).reduce((s,v) => s + v.venta, 0) : 0;
+    etiqueta = 'hoy';
+    restanPeriodo = 1;
+  } else if(metaMesModo === 'bloque'){
+    const bloqueIdx = Math.min(2, Math.floor((diaHoy - 1) / 10)); // 0: 1-10, 1: 11-20, 2: 21-fin
+    const bloqueDesde = bloqueIdx * 10 + 1;
+    const bloqueHasta = bloqueIdx === 2 ? diasDelMes : bloqueIdx * 10 + 10;
+    metaPeriodo = metaMesValor / 3;
+    vendidoPeriodo = data.ventasDetalle ?
+      getVentasDetalle(data).filter(v => monthKey(v.date) === monthKey(hoy) && v.date.getDate() >= bloqueDesde && v.date.getDate() <= bloqueHasta)
+        .reduce((s,v) => s + v.venta, 0) : 0;
+    etiqueta = 'del ' + bloqueDesde + ' al ' + bloqueHasta;
+    restanPeriodo = bloqueHasta - diaHoy + 1;
+  } else {
+    metaPeriodo = metaMesValor;
+    vendidoPeriodo = vendidoMes;
+    etiqueta = 'del mes';
+    restanPeriodo = diasRestantes;
+  }
+
+  const faltaPeriodo = Math.max(0, metaPeriodo - vendidoPeriodo);
+  const pct = Math.min(100, metaPeriodo > 0 ? vendidoPeriodo / metaPeriodo * 100 : 0);
+  const cumplido = vendidoPeriodo >= metaPeriodo;
+
+  let html =
+    '<div class="metames-big">' +
+      '<span class="mono">S/ ' + fmt0(vendidoPeriodo) + '</span>' +
+      '<span class="metames-goal">de S/ ' + fmt0(metaPeriodo) + ' ' + etiqueta + '</span>' +
+    '</div>' +
+    '<div class="proj-bar"><div class="proj-bar-fill" style="width:' + pct + '%"></div></div>';
+
+  if(cumplido){
+    html += '<div class="metames-note"><span class="ok">✓ Meta ' + etiqueta + ' cumplida.</span> Todo lo extra desde aquí es puro impulso.</div>';
+  } else {
+    const porDiaFalta = restanPeriodo > 0 ? faltaPeriodo / restanPeriodo : faltaPeriodo;
+    html += '<div class="metames-note">Te faltan <span class="bad">S/ ' + fmt0(faltaPeriodo) + '</span> ' + etiqueta +
+      (restanPeriodo > 1 ? ' — unos S/ ' + fmt0(porDiaFalta) + ' por día para llegar.' : '.') + '</div>';
+  }
+
+  html += '<div class="metames-note">Mes completo: llevas S/ ' + fmt0(vendidoMes) + ' de S/ ' + fmt0(metaMesValor) +
+    ' (' + fmt0(Math.min(100, metaMesValor>0?vendidoMes/metaMesValor*100:0)) + '%), a ' + diasRestantes + ' día(s) de terminar ' +
+    cap(hoy.toLocaleDateString('es-PE', {month:'long'})) + '.</div>';
+
+  bodyEl.innerHTML = html;
 }
 
 // 6b. MEJOR DÍA DE LA SEMANA — agrupa las ventas de los últimos 90 días por día
@@ -1874,6 +2021,29 @@ document.getElementById('recentToggle').addEventListener('click', (e) => {
   recentDias = Number(btn.getAttribute('data-dias'));
   try{ localStorage.setItem('timeless_recent_dias', recentDias); }catch(err){}
   if(LAST) renderRecent(LAST.data);
+});
+
+// Ventas recientes: elegir el período (esta semana / 7 días / 15 días).
+document.getElementById('ventasRecToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-modo]');
+  if(!btn) return;
+  ventasRecModo = btn.getAttribute('data-modo');
+  try{ localStorage.setItem('timeless_ventasrec_modo', ventasRecModo); }catch(err){}
+  if(LAST) renderVentasRecientes(LAST.data);
+});
+
+// Meta del mes: elegir cómo repartir la meta (por día / por bloque de 10 días / por mes).
+document.getElementById('metaMesToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-modo]');
+  if(!btn) return;
+  metaMesModo = btn.getAttribute('data-modo');
+  try{ localStorage.setItem('timeless_metames_modo', metaMesModo); }catch(err){}
+  if(LAST) renderMetaMes(LAST.data);
+});
+document.getElementById('metaMesInput').addEventListener('input', (e) => {
+  metaMesValor = Number(e.target.value) || 0;
+  try{ localStorage.setItem('timeless_metames_valor', metaMesValor); }catch(err){}
+  if(LAST) renderMetaMes(LAST.data);
 });
 
 // Mejor día de la semana: elegir el período (90 / 60 / 30 días).
