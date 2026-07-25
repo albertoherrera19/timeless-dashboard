@@ -1729,7 +1729,7 @@ function renderCompraForm(c){
     '</div>' +
 
     '<label class="cf-label">Precio total del bloque (lo que pagas en conjunto, no por producto)</label>' +
-    '<input type="number" step="0.01" class="cf-input" id="cfPrecio" placeholder="0.00" value="' + ((c&&c.precioTotal)||'') + '">' +
+    '<input type="text" inputmode="decimal" class="cf-input" id="cfPrecio" placeholder="0.00" value="' + ((c&&c.precioTotal)||'') + '">' +
 
     '<div class="cf-prod-header">' +
       '<label class="cf-label" style="margin:0;">Productos y cantidades aprox.</label>' +
@@ -1770,8 +1770,8 @@ function compraProductoRowHtml(producto, cantidad, precioVenta, tipo){
         '</div>' +
       '</div>' +
       '<div class="cf-prod-line2">' +
-        '<input type="number" class="cf-input cf-prod-cant" placeholder="Cantidad" value="' + esc(cantidad||'') + '">' +
-        '<input type="number" step="0.01" class="cf-input cf-prod-pventa" placeholder="Precio venta c/u" value="' + esc(precioVenta||'') + '">' +
+        '<input type="text" inputmode="numeric" class="cf-input cf-prod-cant" placeholder="Cantidad" value="' + esc(cantidad||'') + '">' +
+        '<input type="text" inputmode="decimal" class="cf-input cf-prod-pventa" placeholder="Precio venta c/u" value="' + esc(precioVenta||'') + '">' +
       '</div>' +
       '<div class="cf-prod-ganancia muted">Ponle un precio de venta para ver el ingreso</div>' +
       '<details class="cf-prod-fotos-details">' +
