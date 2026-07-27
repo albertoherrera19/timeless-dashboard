@@ -286,6 +286,10 @@ function esNegocio(categoria){
 let utilMode = 'negocio';
 try{ utilMode = localStorage.getItem('timeless_util_mode') || 'negocio'; }catch(e){}
 
+// Desglose Ads/Materiales bajo "Gastos de negocio" — solo abre/cierra, no
+// se guarda entre sesiones (se resetea cerrado cada vez que abres la app).
+let gastosNegocioAbierto = false;
+
 function getPublicidad(data){
   return body(data.publicidad).map(r => ({
     semana: (r[0]||'').trim(),
@@ -999,6 +1003,11 @@ function renderHero(ventas, gastos, data, mk){
   const gananciaNeta = vMes.reduce((s,v)=>s+v.gananciaNeta, 0);
   const gastosNegocio  = gMes.filter(g=>esNegocio(g.categoria)).reduce((s,g)=>s+g.monto, 0);
   const gastosPersonal = gMes.filter(g=>!esNegocio(g.categoria)).reduce((s,g)=>s+g.monto, 0);
+  // Desglose de "Gastos de negocio": Ads aparte, y Materiales = el resto
+  // (así siempre suman exacto al total, aunque se agregue otra categoría
+  // de negocio a futuro).
+  const gastosAds = gMes.filter(g => normName(g.categoria) === 'ads').reduce((s,g)=>s+g.monto, 0);
+  const gastosMateriales = gastosNegocio - gastosAds;
   const inversion = sumInversion(data, k);
 
   // Modo "negocio": solo gastos de negocio. Modo "todo": también los personales.
@@ -1020,7 +1029,7 @@ function renderHero(ventas, gastos, data, mk){
   const rows = [
     {name:'Ingresos del mes', amt:ingresos, info:true},
     {name:'Ganancia neta de ventas', amt:gananciaNeta, sign:'+'},
-    {name:'Gastos de negocio (Ads, materiales)', amt:-gastosNegocio, sign:'-'},
+    {name:'Gastos de negocio (Ads, materiales)', amt:-gastosNegocio, sign:'-', negocioRow:true},
   ];
   if(utilMode === 'todo'){
     rows.push({name:'Gastos personales', amt:-gastosPersonal, sign:'-'});
@@ -1035,10 +1044,18 @@ function renderHero(ventas, gastos, data, mk){
     rows.map(r => {
       const cls = r.total ? (r.amt<0?'minus':'') : (r.info ? '' : (r.sign==='+'?'plus':'minus'));
       const prefix = r.amt<0 ? '− ' : (r.sign==='+'&&!r.total ? '+ ' : '');
-      return '<div class="r-row' + (r.total ? ' total' : '') + (r.faint ? ' faint' : '') + '">' +
-        '<span class="r-name">' + r.name + '</span>' +
+      const caret = r.negocioRow ?
+        ' <button type="button" class="r-caret" id="gastosNegocioCaret">' + (gastosNegocioAbierto ? '▾' : '▸') + '</button>' : '';
+      let html = '<div class="r-row' + (r.total ? ' total' : '') + (r.faint ? ' faint' : '') + '">' +
+        '<span class="r-name">' + r.name + caret + '</span>' +
         '<span class="r-amt ' + cls + '">' + prefix + 'S/ ' + fmt(Math.abs(r.amt)) + '</span>' +
       '</div>';
+      if(r.negocioRow && gastosNegocioAbierto){
+        html +=
+          '<div class="r-row faint sub"><span class="r-name">↳ Ads</span><span class="r-amt">S/ ' + fmt(gastosAds) + '</span></div>' +
+          '<div class="r-row faint sub"><span class="r-name">↳ Materiales</span><span class="r-amt">S/ ' + fmt(gastosMateriales) + '</span></div>';
+      }
+      return html;
     }).join('');
 }
 
@@ -2129,6 +2146,15 @@ document.getElementById('utilToggle').addEventListener('click', (e) => {
     renderHero(LAST.ventas, LAST.gastos, LAST.data, selectedMonthKey);
     renderMeses(LAST.ventas, LAST.gastos, LAST.data);
   }
+});
+
+// "Gastos de negocio": flechita para ver el desglose Ads/Materiales sin
+// esconder el total (heroReceipt se re-pinta entero en cada render, por eso
+// se delega el click sobre el contenedor en vez de sobre el botón).
+document.getElementById('heroReceipt').addEventListener('click', (e) => {
+  if(!e.target.closest('#gastosNegocioCaret')) return;
+  gastosNegocioAbierto = !gastosNegocioAbierto;
+  if(LAST) renderHero(LAST.ventas, LAST.gastos, LAST.data, selectedMonthKey);
 });
 
 // Mes a mes: elegir qué métrica mostrar (Utilidad neta / Ingresos / Ganancia neta de ventas).

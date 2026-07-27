@@ -217,6 +217,12 @@ h1{
 .r-row.total .r-name{color:var(--bone);font-weight:700;}
 .r-row.faint{opacity:.6;}
 .r-row.faint .r-name{font-size:11px;}
+.r-row.sub{padding:6px 0;}
+.r-row.sub .r-name{padding-left:12px;}
+.r-caret{
+  background:none;border:none;color:var(--muted);cursor:pointer;
+  font-size:11px;padding:2px 4px;margin-left:2px;vertical-align:middle;
+}
 
 /* Interruptor Negocio / Todo */
 .hero-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
