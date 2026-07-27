@@ -1095,7 +1095,12 @@ function getPendientesDeStock(stocks){
   // Requiere precio > 0: así se excluyen materiales/insumos (bolsas, empaques,
   // etc.) que se compran con stock=0 pero nunca se venden — esos van como
   // gasto de "Materiales Timeless" en la app de gastos, no como pedido.
-  return stocks.filter(s => s.stock === 0 && s.invertido > 0 && s.precio > 0).map(s => {
+  //
+  // stock=0 por sí solo NO basta: también puede significar que YA llegó y se
+  // agotó de tanto venderlo (no que está en camino). Por eso se exige además
+  // vendidos=0 — si nunca se ha vendido ni una unidad, es porque de verdad
+  // no ha llegado todavía.
+  return stocks.filter(s => s.stock === 0 && s.vendidos === 0 && s.invertido > 0 && s.precio > 0).map(s => {
     // Ingresos/ganancia neta del PEDIDO COMPLETO (precio × cantidad pedida),
     // no "Ganancia bruta/neta posible" (esas son sobre el stock actual, que
     // todavía es 0 mientras no llegue).
