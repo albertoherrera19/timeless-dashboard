@@ -1051,7 +1051,7 @@ function renderHero(ventas, gastos, data, mk){
       const prefix = r.amt<0 ? '− ' : (r.sign==='+'&&!r.total ? '+ ' : '');
       const caret = r.negocioRow ?
         ' <button type="button" class="r-caret" id="gastosNegocioCaret">' + (gastosNegocioAbierto ? '▾' : '▸') + '</button>' : '';
-      let html = '<div class="r-row' + (r.total ? ' total' : '') + (r.faint ? ' faint' : '') + '">' +
+      let html = '<div class="r-row' + (r.total ? ' total' : '') + (r.faint ? ' faint' : '') + (r.negocioRow ? ' clickable' : '') + '"' + (r.negocioRow ? ' id="gastosNegocioRow"' : '') + '>' +
         '<span class="r-name">' + r.name + caret + '</span>' +
         '<span class="r-amt ' + cls + '">' + prefix + 'S/ ' + fmt(Math.abs(r.amt)) + '</span>' +
       '</div>';
@@ -2160,7 +2160,7 @@ document.getElementById('utilToggle').addEventListener('click', (e) => {
 // esconder el total (heroReceipt se re-pinta entero en cada render, por eso
 // se delega el click sobre el contenedor en vez de sobre el botón).
 document.getElementById('heroReceipt').addEventListener('click', (e) => {
-  if(!e.target.closest('#gastosNegocioCaret')) return;
+  if(!e.target.closest('#gastosNegocioRow')) return;
   gastosNegocioAbierto = !gastosNegocioAbierto;
   if(LAST) renderHero(LAST.ventas, LAST.gastos, LAST.data, selectedMonthKey);
 });

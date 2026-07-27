@@ -218,6 +218,7 @@ h1{
 .r-row.faint{opacity:.6;}
 .r-row.faint .r-name{font-size:11px;}
 .r-row.sub{padding:6px 0;}
+.r-row.clickable{cursor:pointer;}
 .r-row.sub .r-name{padding-left:12px;}
 .r-caret{
   background:none;border:none;color:var(--muted);cursor:pointer;
