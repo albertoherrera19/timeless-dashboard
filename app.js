@@ -1108,6 +1108,14 @@ function getPendientesDeStock(stocks){
 // Pedidos comprados que aún no llegan (derivados directo de Stocks, ver
 // getPendientesDeStock arriba). Apenas subas el stock de un producto de 0 a
 // más, esa fila deja de aparecer aquí sola — no hace falta ningún otro paso.
+//
+// Cuando un producto que ESTABA pendiente deja de estarlo (ya tiene stock),
+// se guarda en localStorage y se muestra una nota "✓ ya llegó" por unas 24h
+// (para avisar sin ocupar espacio para siempre); después desaparece solo.
+const PENDIENTES_VISTOS_KEY = 'timeless_pendientes_vistos';
+const PENDIENTES_LLEGADOS_KEY = 'timeless_pendientes_llegados';
+const PENDIENTE_LLEGADO_MS = 24 * 60 * 60 * 1000;
+
 function renderPendientes(stocks){
   const box = document.getElementById('pendingBlock');
   if(!box) return;
@@ -1115,25 +1123,63 @@ function renderPendientes(stocks){
   box.onclick = null;
 
   const rows = getPendientesDeStock(stocks);
-  if(rows.length === 0){ box.innerHTML = ''; return; }
+  const nowKeys = {};
+  rows.forEach(r => { nowKeys[normName(r.producto)] = true; });
 
-  const totalPorLlegar = rows.reduce((s,r) => s + r.invertido, 0);
-  let html =
-    '<div class="pend-head">' +
-      '<span>📦 Dinero en pedidos por llegar · Invertido</span>' +
-      '<span class="mono accent">S/ ' + fmt(totalPorLlegar) + '</span>' +
-    '</div>' +
-    rows.map(r =>
-      '<div class="pend-row">' +
-        '<span class="pend-name">' + esc(r.producto) + '</span>' +
-        '<span class="pend-amt mono">S/ ' + fmt(r.invertido) + '</span>' +
-      '</div>'
-    ).join('') +
-    '<div class="pend-hint">Toca para ver Invertido, Ingresos y Ganancia neta por separado ▸</div>';
+  let vistosAntes = {};
+  try{ vistosAntes = JSON.parse(localStorage.getItem(PENDIENTES_VISTOS_KEY) || '{}'); }catch(e){}
+  let llegados = [];
+  try{ llegados = JSON.parse(localStorage.getItem(PENDIENTES_LLEGADOS_KEY) || '[]'); }catch(e){}
+
+  const nombreOriginal = {};
+  stocks.forEach(s => { nombreOriginal[normName(s.producto)] = s.producto; });
+
+  // Estaba en la lista pendiente anterior y ya no está en la actual = acaba de llegar.
+  Object.keys(vistosAntes).forEach(k => {
+    if(!nowKeys[k] && !llegados.some(l => l.key === k)){
+      llegados.push({key: k, producto: nombreOriginal[k] || vistosAntes[k], ts: Date.now()});
+    }
+  });
+  const ahora = Date.now();
+  llegados = llegados.filter(l => (ahora - l.ts) < PENDIENTE_LLEGADO_MS && !nowKeys[l.key]);
+
+  const vistosGuardar = {};
+  rows.forEach(r => { vistosGuardar[normName(r.producto)] = r.producto; });
+  try{
+    localStorage.setItem(PENDIENTES_VISTOS_KEY, JSON.stringify(vistosGuardar));
+    localStorage.setItem(PENDIENTES_LLEGADOS_KEY, JSON.stringify(llegados));
+  }catch(e){}
+
+  if(rows.length === 0 && llegados.length === 0){ box.innerHTML = ''; return; }
+
+  let html = '';
+  if(rows.length > 0){
+    const totalPorLlegar = rows.reduce((s,r) => s + r.invertido, 0);
+    html +=
+      '<div class="pend-head">' +
+        '<span>📦 Dinero en pedidos por llegar · Invertido</span>' +
+        '<span class="mono accent">S/ ' + fmt(totalPorLlegar) + '</span>' +
+      '</div>' +
+      rows.map(r =>
+        '<div class="pend-row">' +
+          '<span class="pend-name">' + esc(r.producto) + '</span>' +
+          '<span class="pend-amt mono">S/ ' + fmt(r.invertido) + '</span>' +
+        '</div>'
+      ).join('');
+  }
+  if(llegados.length > 0){
+    html += '<div class="pend-arrived-note">✓ ' + esc(llegados.map(l => l.producto).join(', ')) +
+      (llegados.length === 1 ? ' ya llegó' : ' ya llegaron') + '</div>';
+  }
+  if(rows.length > 0){
+    html += '<div class="pend-hint">Toca para ver Invertido, Ingresos y Ganancia neta por separado ▸</div>';
+  }
 
   box.innerHTML = html;
-  box.classList.add('clickable');
-  box.onclick = () => openFullscreen('Pedidos por llegar · detalle', renderPendientesFsBody(rows));
+  if(rows.length > 0){
+    box.classList.add('clickable');
+    box.onclick = () => openFullscreen('Pedidos por llegar · detalle', renderPendientesFsBody(rows));
+  }
 }
 
 // Vista de pantalla completa de Pendientes: las 3 métricas por separado (totales)
@@ -1148,7 +1194,7 @@ function renderPendientesFsBody(rows){
     '<div class="fs-metric-row"><span class="fs-mname">Ingresos si vendes todo (venta bruta)</span><span class="fs-mamt">S/ ' + fmt(totIng) + '</span></div>' +
     '<div class="fs-metric-row"><span class="fs-mname">Ganancia neta si vendes todo</span><span class="fs-mamt">S/ ' + fmt(totGN) + '</span></div>';
 
-  const sinPrecio = activos.filter(r => !r.tienePrecio).length;
+  const sinPrecio = rows.filter(r => !r.tienePrecio).length;
   const nota = sinPrecio > 0
     ? '<div class="ads-daily-note">⚠ ' + sinPrecio + ' producto(s) pendiente(s) no tienen precio en la pestaña Stocks todavía, así que no se puede calcular su Ingresos/Ganancia neta (por eso solo cuentan en Invertido).</div>'
     : '';

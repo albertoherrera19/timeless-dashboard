@@ -358,6 +358,7 @@ h1{
 }
 
 /* Notas de pendientes (los que ya llegaron) */
+.pend-arrived-note{font-size:11px;color:var(--ok);margin-top:8px;}
 
 /* 4. Mes a mes (mismo estilo que la app de gastos) */
 .months-bars{
