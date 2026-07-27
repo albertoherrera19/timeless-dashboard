@@ -1568,6 +1568,14 @@ function renderCompras(){
       const c = compras.find(x => x.id === id);
       if(c) openCompraForm(c);
     });
+    const thumbImg = el.querySelector('.compra-thumb img');
+    if(thumbImg){
+      thumbImg.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const c = compras.find(x => x.id === id);
+        if(c && c.fotos && c.fotos.length) abrirLightbox(c.fotos, 0);
+      });
+    }
     el.querySelector('.compra-quick-ok').addEventListener('click', (ev) => {
       ev.stopPropagation();
       if(!confirm('¿Ya pediste/compraste todo este bloque? Se va a quitar de la lista de Accesorios.')) return;
@@ -1829,13 +1837,58 @@ function openCompraForm(c){
   wireCompraForm(c);
 }
 
-// Pinta una tira de miniaturas con botón × para borrar cada una.
+// Visor de fotos a pantalla completa: click en una miniatura la abre grande,
+// con flechas y deslizar (swipe) para pasar entre todas las fotos de ese grupo.
+let lightboxFotos = [];
+let lightboxIdx = 0;
+function renderLightbox(){
+  document.getElementById('lightboxImg').src = lightboxFotos[lightboxIdx] || '';
+  document.getElementById('lightboxCount').textContent = (lightboxIdx+1) + ' / ' + lightboxFotos.length;
+  const multi = lightboxFotos.length > 1;
+  document.getElementById('lightboxPrev').style.display = multi ? '' : 'none';
+  document.getElementById('lightboxNext').style.display = multi ? '' : 'none';
+  document.getElementById('lightboxCount').style.display = multi ? '' : 'none';
+}
+function abrirLightbox(fotos, idx){
+  if(!fotos || fotos.length === 0) return;
+  lightboxFotos = fotos;
+  lightboxIdx = idx || 0;
+  renderLightbox();
+  document.getElementById('lightboxView').hidden = false;
+}
+function cerrarLightbox(){ document.getElementById('lightboxView').hidden = true; }
+function lightboxPrev(){ lightboxIdx = (lightboxIdx - 1 + lightboxFotos.length) % lightboxFotos.length; renderLightbox(); }
+function lightboxNext(){ lightboxIdx = (lightboxIdx + 1) % lightboxFotos.length; renderLightbox(); }
+
+document.getElementById('lightboxClose').addEventListener('click', cerrarLightbox);
+document.getElementById('lightboxPrev').addEventListener('click', lightboxPrev);
+document.getElementById('lightboxNext').addEventListener('click', lightboxNext);
+document.getElementById('lightboxView').addEventListener('click', (e) => {
+  if(e.target.id === 'lightboxView') cerrarLightbox();
+});
+(() => {
+  let touchX = null;
+  const lb = document.getElementById('lightboxView');
+  lb.addEventListener('touchstart', (e) => { touchX = e.touches[0].clientX; });
+  lb.addEventListener('touchend', (e) => {
+    if(touchX === null) return;
+    const dx = e.changedTouches[0].clientX - touchX;
+    if(Math.abs(dx) > 40){ dx < 0 ? lightboxNext() : lightboxPrev(); }
+    touchX = null;
+  });
+})();
+
+// Pinta una tira de miniaturas con botón × para borrar cada una; click en la
+// foto (no en el ×) la abre en el visor a pantalla completa.
 function renderFotosStripInto(container, fotos, onRemove){
   container.innerHTML = fotos.map((url, idx) =>
-    '<div class="cf-foto-thumb"><img src="' + esc(url) + '"><button type="button" class="cf-foto-thumb-del" data-idx="' + idx + '">×</button></div>'
+    '<div class="cf-foto-thumb"><img src="' + esc(url) + '" data-idx="' + idx + '"><button type="button" class="cf-foto-thumb-del" data-idx="' + idx + '">×</button></div>'
   ).join('');
   container.querySelectorAll('.cf-foto-thumb-del').forEach(btn => {
     btn.addEventListener('click', () => onRemove(Number(btn.getAttribute('data-idx'))));
+  });
+  container.querySelectorAll('.cf-foto-thumb img').forEach(img => {
+    img.addEventListener('click', () => abrirLightbox(fotos, Number(img.getAttribute('data-idx'))));
   });
 }
 

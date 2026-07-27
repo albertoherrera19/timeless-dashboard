@@ -234,6 +234,15 @@
   <div class="fs-body" id="fsBody"></div>
 </div>
 
+<!-- Visor de fotos a pantalla completa (con deslizar/flechas si hay varias) -->
+<div class="lightbox" id="lightboxView" hidden>
+  <button type="button" class="lightbox-close" id="lightboxClose">✕</button>
+  <button type="button" class="lightbox-nav lightbox-prev" id="lightboxPrev">‹</button>
+  <img class="lightbox-img" id="lightboxImg" src="" alt="">
+  <button type="button" class="lightbox-nav lightbox-next" id="lightboxNext">›</button>
+  <div class="lightbox-count" id="lightboxCount"></div>
+</div>
+
 <script src="config.js"></script>
 <script src="app.js"></script>
 <script>
