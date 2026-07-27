@@ -1077,13 +1077,9 @@ function renderProyeccion(ventas, stocks, data, mk){
   if(pendRows.length > 0){
     const pendIngresos = pendRows.reduce((s,r) => s + r.ingresos, 0);
     const pendGN = pendRows.reduce((s,r) => s + r.gananciaNeta, 0);
-    const sinPrecio = pendRows.filter(r => !r.tienePrecio).length;
     extraHtml +=
       '<div class="r-row total"><span class="r-name">Si además te llega TODO lo pendiente, en efectivo</span><span class="r-amt">S/ ' + fmt(valorVenta + pendIngresos) + '</span></div>' +
       '<div class="r-row"><span class="r-name">↳ De eso, tu ganancia neta</span><span class="r-amt plus">S/ ' + fmt(posible + pendGN) + '</span></div>';
-    if(sinPrecio > 0){
-      extraHtml += '<div class="r-row faint"><span class="r-name">↳ ' + sinPrecio + ' producto(s) pendiente(s) sin precio aún en Stocks (no cuentan arriba, solo en Invertido)</span></div>';
-    }
   }
 
   extra.innerHTML = extraHtml;
@@ -1096,17 +1092,18 @@ function renderProyeccion(ventas, stocks, data, mk){
 // calculado por ti en el Excel). Apenas subas el stock de ese producto a más
 // de 0, deja de contar aquí solo — no hace falta tocar nada más.
 function getPendientesDeStock(stocks){
-  return stocks.filter(s => s.stock === 0 && s.invertido > 0).map(s => {
-    const tienePrecio = s.precio > 0;
+  // Requiere precio > 0: así se excluyen materiales/insumos (bolsas, empaques,
+  // etc.) que se compran con stock=0 pero nunca se venden — esos van como
+  // gasto de "Materiales Timeless" en la app de gastos, no como pedido.
+  return stocks.filter(s => s.stock === 0 && s.invertido > 0 && s.precio > 0).map(s => {
     // Ingresos/ganancia neta del PEDIDO COMPLETO (precio × cantidad pedida),
     // no "Ganancia bruta/neta posible" (esas son sobre el stock actual, que
     // todavía es 0 mientras no llegue).
-    const ingresos = tienePrecio ? s.precio * s.cantidadPedido : 0;
+    const ingresos = s.precio * s.cantidadPedido;
     return {
       producto: s.producto,
       cantidad: s.cantidadPedido,
       invertido: s.invertido,
-      tienePrecio,
       ingresos,
       gananciaNeta: ingresos - s.invertido,
     };
@@ -1202,24 +1199,19 @@ function renderPendientesFsBody(rows){
     '<div class="fs-metric-row"><span class="fs-mname">Ingresos si vendes todo (venta bruta)</span><span class="fs-mamt">S/ ' + fmt(totIng) + '</span></div>' +
     '<div class="fs-metric-row"><span class="fs-mname">Ganancia neta si vendes todo</span><span class="fs-mamt">S/ ' + fmt(totGN) + '</span></div>';
 
-  const sinPrecio = rows.filter(r => !r.tienePrecio).length;
-  const nota = sinPrecio > 0
-    ? '<div class="ads-daily-note">⚠ ' + sinPrecio + ' producto(s) pendiente(s) no tienen precio en la pestaña Stocks todavía, así que no se puede calcular su Ingresos/Ganancia neta (por eso solo cuentan en Invertido).</div>'
-    : '';
-
   const head = '<tr><th>Producto</th><th>Cant.</th><th>Invertido</th><th>Ingresos</th><th>Gan. neta</th></tr>';
   const body = rows.map(r =>
     '<tr>' +
       '<td>' + esc(r.producto) + '</td>' +
       '<td class="mono">' + fmt0(r.cantidad) + '</td>' +
       '<td class="mono">S/ ' + fmt(r.invertido) + '</td>' +
-      '<td class="mono">' + (r.tienePrecio ? 'S/ ' + fmt(r.ingresos) : '—') + '</td>' +
-      '<td class="mono">' + (r.tienePrecio ? 'S/ ' + fmt(r.gananciaNeta) : '—') + '</td>' +
+      '<td class="mono">S/ ' + fmt(r.ingresos) + '</td>' +
+      '<td class="mono">S/ ' + fmt(r.gananciaNeta) + '</td>' +
     '</tr>'
   ).join('');
   const table = '<div class="table-title">Detalle por producto</div>' + '<div class="ads-daily-wrap"><table class="ads-daily">' + head + body + '</table></div>';
 
-  return stats + nota + table;
+  return stats + table;
 }
 
 // 4. MES A MES — 3 métricas seleccionables: Utilidad neta / Ingresos / Ganancia neta de ventas.
