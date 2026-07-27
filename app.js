@@ -259,6 +259,7 @@ function getGastos(data){
     date: parseDateSmart(r[1]),
     categoria: (r[2]||'').trim(),
     monto: parseMoney(r[3]),
+    nota: (r[4]||'').trim(),
   })).filter(g => g.date && g.monto > 0 && excl.indexOf(normName(g.categoria)) === -1);
 }
 
@@ -275,11 +276,14 @@ function sumInversion(data, k){
 }
 
 // ¿Es un gasto de negocio? Según config.GASTOS_NEGOCIO, o cualquier categoría
-// que empiece por "materiales" (así agarra "Materiales timeless", "Materiales tmls", etc.).
+// que empiece por "materiales" (así agarra "Materiales timeless", "Materiales tmls", etc.),
+// o la nota menciona "sunat" (el pago de RUS de Alberto, que categoriza como
+// "Servicios" pero es 100% del negocio).
 const NEGOCIO_SET = (cfg.GASTOS_NEGOCIO || []).map(c => normName(c));
-function esNegocio(categoria){
+function esNegocio(categoria, nota){
   const n = normName(categoria);
-  return NEGOCIO_SET.indexOf(n) !== -1 || n.indexOf('materiales') === 0;
+  if(NEGOCIO_SET.indexOf(n) !== -1 || n.indexOf('materiales') === 0) return true;
+  return normName(nota||'').indexOf('sunat') !== -1;
 }
 
 // Modo de la utilidad: 'negocio' (solo gastos de negocio) o 'todo' (también personales).
@@ -1001,13 +1005,14 @@ function renderHero(ventas, gastos, data, mk){
 
   const ingresos     = vMes.reduce((s,v)=>s+v.ingresos, 0);
   const gananciaNeta = vMes.reduce((s,v)=>s+v.gananciaNeta, 0);
-  const gastosNegocio  = gMes.filter(g=>esNegocio(g.categoria)).reduce((s,g)=>s+g.monto, 0);
-  const gastosPersonal = gMes.filter(g=>!esNegocio(g.categoria)).reduce((s,g)=>s+g.monto, 0);
-  // Desglose de "Gastos de negocio": Ads aparte, y Materiales = el resto
-  // (así siempre suman exacto al total, aunque se agregue otra categoría
-  // de negocio a futuro).
+  const gastosNegocio  = gMes.filter(g=>esNegocio(g.categoria, g.nota)).reduce((s,g)=>s+g.monto, 0);
+  const gastosPersonal = gMes.filter(g=>!esNegocio(g.categoria, g.nota)).reduce((s,g)=>s+g.monto, 0);
+  // Desglose de "Gastos de negocio": Ads, Materiales, y "Otros" (por ahora
+  // solo Sunat/RUS, categorizado como "Servicios" pero es del negocio).
+  // "Otros" se calcula como el resto para que siempre sume exacto al total.
   const gastosAds = gMes.filter(g => normName(g.categoria) === 'ads').reduce((s,g)=>s+g.monto, 0);
-  const gastosMateriales = gastosNegocio - gastosAds;
+  const gastosMateriales = gMes.filter(g => normName(g.categoria).indexOf('materiales') === 0).reduce((s,g)=>s+g.monto, 0);
+  const gastosOtrosNegocio = gastosNegocio - gastosAds - gastosMateriales;
   const inversion = sumInversion(data, k);
 
   // Modo "negocio": solo gastos de negocio. Modo "todo": también los personales.
@@ -1054,6 +1059,9 @@ function renderHero(ventas, gastos, data, mk){
         html +=
           '<div class="r-row faint sub"><span class="r-name">↳ Ads</span><span class="r-amt">S/ ' + fmt(gastosAds) + '</span></div>' +
           '<div class="r-row faint sub"><span class="r-name">↳ Materiales</span><span class="r-amt">S/ ' + fmt(gastosMateriales) + '</span></div>';
+        if(gastosOtrosNegocio > 0){
+          html += '<div class="r-row faint sub"><span class="r-name">↳ Otros (Sunat)</span><span class="r-amt">S/ ' + fmt(gastosOtrosNegocio) + '</span></div>';
+        }
       }
       return html;
     }).join('');
@@ -1259,7 +1267,7 @@ function renderMeses(ventas, gastos, data){
   function slot(k){ return acc[k] || (acc[k] = {ing:0, gn:0, g:0}); }
   ventas.forEach(x => { const s = slot(monthKey(x.date)); s.ing += x.ingresos; s.gn += x.gananciaNeta; });
   gastos.forEach(x => {
-    if(utilMode === 'todo' || esNegocio(x.categoria)) slot(monthKey(x.date)).g += x.monto;
+    if(utilMode === 'todo' || esNegocio(x.categoria, x.nota)) slot(monthKey(x.date)).g += x.monto;
   });
 
   const keys = Object.keys(acc).sort().slice(-12);
