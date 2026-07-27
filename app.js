@@ -339,9 +339,13 @@ function getStocks(data){
     precio: parseMoney(r[1]),
     vendidos: parseMoney(r[2]),
     stock: parseMoney(r[3]),
+    // "Ganancia bruta/neta posible" son sobre el STOCK actual (para proyectar
+    // "si vendes lo que tienes ahora"). En pedidos aún sin llegar (stock=0)
+    // estas dan 0 — para esos se usa cantidadPedido, ver getPendientesDeStock.
     gananciaBruta: parseMoney(r[4]),
     gananciaNeta: parseMoney(r[5]),
     invertido: parseMoney(r[6]),
+    cantidadPedido: parseMoney(r[7]),
   })).filter(s => s.producto && s.producto.toLowerCase() !== 'totales');
 }
 
@@ -1094,13 +1098,17 @@ function renderProyeccion(ventas, stocks, data, mk){
 function getPendientesDeStock(stocks){
   return stocks.filter(s => s.stock === 0 && s.invertido > 0).map(s => {
     const tienePrecio = s.precio > 0;
+    // Ingresos/ganancia neta del PEDIDO COMPLETO (precio × cantidad pedida),
+    // no "Ganancia bruta/neta posible" (esas son sobre el stock actual, que
+    // todavía es 0 mientras no llegue).
+    const ingresos = tienePrecio ? s.precio * s.cantidadPedido : 0;
     return {
       producto: s.producto,
-      cantidad: tienePrecio ? Math.round(s.gananciaBruta / s.precio) : 0,
+      cantidad: s.cantidadPedido,
       invertido: s.invertido,
       tienePrecio,
-      ingresos: s.gananciaBruta,
-      gananciaNeta: s.gananciaNeta,
+      ingresos,
+      gananciaNeta: ingresos - s.invertido,
     };
   });
 }
