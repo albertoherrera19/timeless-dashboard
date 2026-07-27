@@ -130,7 +130,6 @@ const SOURCES = [
   {key:'gastos',     cfgKey:'CSV_GASTOS',     tab:'Gastos'},
   {key:'publicidad', cfgKey:'CSV_PUBLICIDAD', tab:'Publicidad'},
   {key:'stocks',     cfgKey:'CSV_STOCKS',     tab:'Stocks'},
-  {key:'pendientes', cfgKey:'CSV_PENDIENTES', tab:'Pendientes', optional:true},
   {key:'ventasDetalle', cfgKey:'CSV_VENTASDETALLE', tab:'VentasDetalle', optional:true},
   {key:'campanas', cfgKey:'CSV_CAMPANAS', tab:'Campañas', optional:true},
 ];
@@ -331,15 +330,6 @@ function getCampanas(data){
     campana: (r[1]||'').trim(),
     gasto: parseMoney(r[2]),
   })).filter(c => c.date && c.gasto > 0);
-}
-
-// Pestaña "Pendientes": Producto, Cantidad, Invertido (pedidos comprados que aún no llegan)
-function getPendientes(data){
-  return body(data.pendientes).map(r => ({
-    producto: (r[0]||'').trim(),
-    cantidad: parseMoney(r[1]),
-    invertido: parseMoney(r[2]),
-  })).filter(p => p.producto);
 }
 
 // Pestaña "Stocks": Producto, Precio, Vendidos, Stock, Ganancia bruta pos., Ganancia neta pos., Invertido
@@ -1076,85 +1066,70 @@ function renderProyeccion(ventas, stocks, data, mk){
     '<div class="r-row"><span class="r-name">↳ De eso, tu ganancia neta</span><span class="r-amt plus">S/ ' + fmt(posible) + '</span></div>' +
     '<div class="r-row"><span class="r-name">Unidades en stock</span><span class="r-amt">' + fmt0(unidades) + '</span></div>';
 
-  // Si además te llega TODO lo pendiente (pedidos comprados que aún no llegan),
-  // suma su potencial de ingresos/ganancia neta al techo de stock actual.
-  if(data.pendientes){
-    const pendRows = getPendientesConValor(stocks, data).filter(r => !r.llego);
-    if(pendRows.length > 0){
-      const pendIngresos = pendRows.reduce((s,r) => s + r.ingresos, 0);
-      const pendGN = pendRows.reduce((s,r) => s + r.gananciaNeta, 0);
-      const sinPrecio = pendRows.filter(r => !r.tienePrecio).length;
-      extraHtml +=
-        '<div class="r-row total"><span class="r-name">Si además te llega TODO lo pendiente, en efectivo</span><span class="r-amt">S/ ' + fmt(valorVenta + pendIngresos) + '</span></div>' +
-        '<div class="r-row"><span class="r-name">↳ De eso, tu ganancia neta</span><span class="r-amt plus">S/ ' + fmt(posible + pendGN) + '</span></div>';
-      if(sinPrecio > 0){
-        extraHtml += '<div class="r-row faint"><span class="r-name">↳ ' + sinPrecio + ' producto(s) pendiente(s) sin precio aún en Stocks (no cuentan arriba, solo en Invertido)</span></div>';
-      }
+  // Si además te llega TODO lo pendiente (pedidos ya invertidos con stock aún
+  // en 0, así que todavía no llegan), suma su potencial de ingresos/ganancia
+  // neta al techo de stock actual.
+  const pendRows = getPendientesDeStock(stocks);
+  if(pendRows.length > 0){
+    const pendIngresos = pendRows.reduce((s,r) => s + r.ingresos, 0);
+    const pendGN = pendRows.reduce((s,r) => s + r.gananciaNeta, 0);
+    const sinPrecio = pendRows.filter(r => !r.tienePrecio).length;
+    extraHtml +=
+      '<div class="r-row total"><span class="r-name">Si además te llega TODO lo pendiente, en efectivo</span><span class="r-amt">S/ ' + fmt(valorVenta + pendIngresos) + '</span></div>' +
+      '<div class="r-row"><span class="r-name">↳ De eso, tu ganancia neta</span><span class="r-amt plus">S/ ' + fmt(posible + pendGN) + '</span></div>';
+    if(sinPrecio > 0){
+      extraHtml += '<div class="r-row faint"><span class="r-name">↳ ' + sinPrecio + ' producto(s) pendiente(s) sin precio aún en Stocks (no cuentan arriba, solo en Invertido)</span></div>';
     }
   }
 
   extra.innerHTML = extraHtml;
-  renderPendientes(stocks, data);
+  renderPendientes(stocks);
 }
 
-// Pendientes con su valor proyectado: Ingresos = precio (Stocks) × cantidad pendiente.
-// Ganancia neta = Ingresos − Invertido (el invertido ya es el costo real de ese pedido).
-// Si el producto aún no tiene fila en Stocks (o sin precio), no se puede proyectar y queda en 0.
-function getPendientesConValor(stocks, data){
-  const stockByName = {};
-  stocks.forEach(s => { stockByName[normName(s.producto)] = s; });
-  return getPendientes(data).map(p => {
-    const s = stockByName[normName(p.producto)];
-    const llego = (s ? s.stock : 0) > 0;
-    const tienePrecio = !!(s && s.precio > 0);
-    const ingresos = tienePrecio ? p.cantidad * s.precio : 0;
-    const gananciaNeta = tienePrecio ? ingresos - p.invertido : 0;
-    return Object.assign({}, p, {llego, tienePrecio, ingresos, gananciaNeta});
+// Pedidos comprados que aún no llegan: cualquier producto en Stocks con stock
+// en 0 e Invertido > 0 (ya lo pagaste, todavía no está en tu inventario).
+// Ingresos = "Ganancia bruta pos." (ya es precio × cantidad del pedido,
+// calculado por ti en el Excel). Apenas subas el stock de ese producto a más
+// de 0, deja de contar aquí solo — no hace falta tocar nada más.
+function getPendientesDeStock(stocks){
+  return stocks.filter(s => s.stock === 0 && s.invertido > 0).map(s => {
+    const tienePrecio = s.precio > 0;
+    return {
+      producto: s.producto,
+      cantidad: tienePrecio ? Math.round(s.gananciaBruta / s.precio) : 0,
+      invertido: s.invertido,
+      tienePrecio,
+      ingresos: s.gananciaBruta,
+      gananciaNeta: s.gananciaNeta,
+    };
   });
 }
 
-// Pedidos comprados que aún no llegan. Un pendiente se "apaga" solo (no se borra)
-// cuando ese producto ya tiene stock > 0 en la pestaña Stocks — así, si pones stock
-// solo para probar la proyección y luego lo bajas a 0, el pendiente reaparece.
-function renderPendientes(stocks, data){
+// Pedidos comprados que aún no llegan (derivados directo de Stocks, ver
+// getPendientesDeStock arriba). Apenas subas el stock de un producto de 0 a
+// más, esa fila deja de aparecer aquí sola — no hace falta ningún otro paso.
+function renderPendientes(stocks){
   const box = document.getElementById('pendingBlock');
   if(!box) return;
   box.classList.remove('clickable');
   box.onclick = null;
-  if(!data.pendientes){ box.innerHTML = ''; return; }
 
-  const rows = getPendientesConValor(stocks, data);
+  const rows = getPendientesDeStock(stocks);
   if(rows.length === 0){ box.innerHTML = ''; return; }
 
-  // Solo los que AÚN no llegan salen como "por llegar". Los que ya llegaron
-  // (tienen stock > 0 en Stocks) desaparecen de la lista; solo queda una nota.
-  const activos = rows.filter(r => !r.llego);
-  const llegados = rows.filter(r => r.llego);
-  const totalPorLlegar = activos.reduce((s,r) => s + r.invertido, 0);
-
-  let html;
-  if(activos.length === 0){
-    html =
-      '<div class="pend-head"><span>📦 Pedidos por llegar</span><span class="mono accent">todo llegó ✓</span></div>' +
-      '<div class="pend-allarrived">Los ' + llegados.length + ' pedidos que tenías pendientes ya llegaron y están en tu stock.</div>';
-  } else {
-    html =
-      '<div class="pend-head">' +
-        '<span>📦 Dinero en pedidos por llegar · Invertido</span>' +
-        '<span class="mono accent">S/ ' + fmt(totalPorLlegar) + '</span>' +
-      '</div>' +
-      activos.map(r =>
-        '<div class="pend-row">' +
-          '<span class="pend-name">' + esc(r.producto) + '</span>' +
-          '<span class="pend-amt mono">S/ ' + fmt(r.invertido) + '</span>' +
-        '</div>'
-      ).join('');
-    if(llegados.length > 0){
-      html += '<div class="pend-arrived-note">✓ ' + llegados.length + ' ' +
-        (llegados.length === 1 ? 'pedido ya llegó' : 'pedidos ya llegaron') + ' (ya no cuentan en el total)</div>';
-    }
-  }
-  html += '<div class="pend-hint">Toca para ver Invertido, Ingresos y Ganancia neta por separado ▸</div>';
+  const totalPorLlegar = rows.reduce((s,r) => s + r.invertido, 0);
+  let html =
+    '<div class="pend-head">' +
+      '<span>📦 Dinero en pedidos por llegar · Invertido</span>' +
+      '<span class="mono accent">S/ ' + fmt(totalPorLlegar) + '</span>' +
+    '</div>' +
+    rows.map(r =>
+      '<div class="pend-row">' +
+        '<span class="pend-name">' + esc(r.producto) + '</span>' +
+        '<span class="pend-amt mono">S/ ' + fmt(r.invertido) + '</span>' +
+      '</div>'
+    ).join('') +
+    '<div class="pend-hint">Toca para ver Invertido, Ingresos y Ganancia neta por separado ▸</div>';
 
   box.innerHTML = html;
   box.classList.add('clickable');
@@ -1164,10 +1139,9 @@ function renderPendientes(stocks, data){
 // Vista de pantalla completa de Pendientes: las 3 métricas por separado (totales)
 // más el detalle por producto.
 function renderPendientesFsBody(rows){
-  const activos = rows.filter(r => !r.llego);
-  const totInv = activos.reduce((s,r) => s + r.invertido, 0);
-  const totIng = activos.reduce((s,r) => s + r.ingresos, 0);
-  const totGN  = activos.reduce((s,r) => s + r.gananciaNeta, 0);
+  const totInv = rows.reduce((s,r) => s + r.invertido, 0);
+  const totIng = rows.reduce((s,r) => s + r.ingresos, 0);
+  const totGN  = rows.reduce((s,r) => s + r.gananciaNeta, 0);
 
   const stats =
     '<div class="fs-metric-row"><span class="fs-mname">Invertido (lo que ya pagaste)</span><span class="fs-mamt">S/ ' + fmt(totInv) + '</span></div>' +
@@ -1179,7 +1153,7 @@ function renderPendientesFsBody(rows){
     ? '<div class="ads-daily-note">⚠ ' + sinPrecio + ' producto(s) pendiente(s) no tienen precio en la pestaña Stocks todavía, así que no se puede calcular su Ingresos/Ganancia neta (por eso solo cuentan en Invertido).</div>'
     : '';
 
-  const head = '<tr><th>Producto</th><th>Cant.</th><th>Invertido</th><th>Ingresos</th><th>Gan. neta</th><th>Estado</th></tr>';
+  const head = '<tr><th>Producto</th><th>Cant.</th><th>Invertido</th><th>Ingresos</th><th>Gan. neta</th></tr>';
   const body = rows.map(r =>
     '<tr>' +
       '<td>' + esc(r.producto) + '</td>' +
@@ -1187,7 +1161,6 @@ function renderPendientesFsBody(rows){
       '<td class="mono">S/ ' + fmt(r.invertido) + '</td>' +
       '<td class="mono">' + (r.tienePrecio ? 'S/ ' + fmt(r.ingresos) : '—') + '</td>' +
       '<td class="mono">' + (r.tienePrecio ? 'S/ ' + fmt(r.gananciaNeta) : '—') + '</td>' +
-      '<td>' + (r.llego ? '✓ llegó' : 'pendiente') + '</td>' +
     '</tr>'
   ).join('');
   const table = '<div class="table-title">Detalle por producto</div>' + '<div class="ads-daily-wrap"><table class="ads-daily">' + head + body + '</table></div>';
