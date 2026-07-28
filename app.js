@@ -1123,33 +1123,40 @@ function renderProyeccion(ventas, stocks, data, mk){
   renderPendientes(stocks);
 }
 
-// Pedidos comprados que aún no llegan: cualquier producto en Stocks con stock
-// en 0 e Invertido > 0 (ya lo pagaste, todavía no está en tu inventario).
-// Ingresos = "Ganancia bruta pos." (ya es precio × cantidad del pedido,
-// calculado por ti en el Excel). Apenas subas el stock de ese producto a más
-// de 0, deja de contar aquí solo — no hace falta tocar nada más.
+// Pedidos comprados que aún no llegan (o no llegan del todo): lo pendiente de
+// un producto es "cantidad pedida − lo que ya está en stock − lo que ya se
+// vendió". Cubre tanto un pedido que no ha llegado nada de él (stock=0,
+// vendidos=0 → pendiente = cantidad pedida completa) como una LLEGADA
+// PARCIAL de dos proveedores distintos (ej. pediste 30, te llegaron 20 de un
+// proveedor y 10 siguen en camino de otro: pones stock=20, vendidos=0, y acá
+// solo quedan pendientes esas 10 — eso NO es un error, es lo que falta por
+// llegar). Apenas la cantidad en stock+vendidos alcance lo pedido, la fila
+// deja de aparecer sola — no hace falta tocar nada más.
 function getPendientesDeStock(stocks){
-  // Requiere precio > 0: así se excluyen materiales/insumos (bolsas, empaques,
-  // etc.) que se compran con stock=0 pero nunca se venden — esos van como
-  // gasto de "Materiales Timeless" en la app de gastos, no como pedido.
-  //
-  // stock=0 por sí solo NO basta: también puede significar que YA llegó y se
-  // agotó de tanto venderlo (no que está en camino). Por eso se exige además
-  // vendidos=0 — si nunca se ha vendido ni una unidad, es porque de verdad
-  // no ha llegado todavía.
-  return stocks.filter(s => s.stock === 0 && s.vendidos === 0 && s.invertido > 0 && s.precio > 0).map(s => {
-    // Ingresos/ganancia neta del PEDIDO COMPLETO (precio × cantidad pedida),
-    // no "Ganancia bruta/neta posible" (esas son sobre el stock actual, que
-    // todavía es 0 mientras no llegue).
-    const ingresos = s.precio * s.cantidadPedido;
-    return {
-      producto: s.producto,
-      cantidad: s.cantidadPedido,
-      invertido: s.invertido,
-      ingresos,
-      gananciaNeta: ingresos - s.invertido,
-    };
-  });
+  return stocks.map(s => ({ s, pendiente: s.cantidadPedido - s.stock - s.vendidos }))
+    // Requiere precio > 0: así se excluyen materiales/insumos (bolsas, empaques,
+    // etc.) que se compran sin llegar todavía pero nunca se venden — esos van
+    // como gasto de "Materiales Timeless" en la app de gastos, no como pedido.
+    //
+    // stock=0 por sí solo NO basta como señal (ni antes ni ahora): también
+    // puede significar que YA llegó todo y se agotó de tanto venderlo. La
+    // resta de arriba ya lo cubre: si todo lo pedido está en stock+vendidos,
+    // pendiente da 0 y no aparece aquí.
+    .filter(({s, pendiente}) => pendiente > 0 && s.invertido > 0 && s.precio > 0)
+    .map(({s, pendiente}) => {
+      // Invertido/Ingresos/Ganancia neta se prorratean a la porción pendiente
+      // (si ya llegó una parte, esa parte ya cuenta en "Stock actual", no acá).
+      const proporcion = s.cantidadPedido > 0 ? pendiente / s.cantidadPedido : 1;
+      const invertido = s.invertido * proporcion;
+      const ingresos = s.precio * pendiente;
+      return {
+        producto: s.producto,
+        cantidad: pendiente,
+        invertido,
+        ingresos,
+        gananciaNeta: ingresos - invertido,
+      };
+    });
 }
 
 // Pedidos comprados que aún no llegan (derivados directo de Stocks, ver
