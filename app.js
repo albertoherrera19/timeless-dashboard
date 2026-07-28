@@ -316,8 +316,20 @@ function normName(s){
 function normProducto(s){
   return normName(s).replace(/^cinto\b/, 'cinturon');
 }
-// Separa un combo ("collar A + collar B") en sus piezas.
+// Combos que se venden siempre juntos pero se anotan en el Excel de ventas con
+// un nombre corto (no "A + B"). Se expanden aquí a los nombres exactos de Stocks
+// para que "más vendidos", ventas recientes y velocidad de stock repartan la
+// venta entre ambos productos reales.
+const COMBO_ALIAS = {
+  'anillos duki': ['Anillo demon wings duki', 'Anillo angel wings duki'],
+};
+
+// Separa un combo ("collar A + collar B") en sus piezas, o expande un alias corto
+// (ver COMBO_ALIAS) a los nombres reales. Si vendes una pieza suelta, anótala en
+// el Excel con el nombre exacto tal cual está en Stocks y no pasará por aquí.
 function splitCombo(nombre){
+  const alias = COMBO_ALIAS[normName(nombre)];
+  if(alias) return alias;
   return String(nombre||'').split('+').map(s => s.trim()).filter(Boolean);
 }
 
