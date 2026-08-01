@@ -1072,7 +1072,7 @@ function renderHero(ventas, gastos, data, mk){
           '<div class="r-row faint sub"><span class="r-name">↳ Ads</span><span class="r-amt">S/ ' + fmt(gastosAds) + '</span></div>' +
           '<div class="r-row faint sub"><span class="r-name">↳ Materiales</span><span class="r-amt">S/ ' + fmt(gastosMateriales) + '</span></div>';
         if(gastosOtrosNegocio > 0){
-          html += '<div class="r-row faint sub"><span class="r-name">↳ Otros (Sunat)</span><span class="r-amt">S/ ' + fmt(gastosOtrosNegocio) + '</span></div>';
+          html += '<div class="r-row faint sub"><span class="r-name">↳ Otros (Sunat, canjes)</span><span class="r-amt">S/ ' + fmt(gastosOtrosNegocio) + '</span></div>';
         }
       }
       return html;

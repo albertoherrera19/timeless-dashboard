@@ -57,5 +57,6 @@ const TIMELESS_CONFIG = {
   // "Todo"). Comparación sin acentos/mayúsculas; además, cualquier categoría que
   // empiece por "materiales" cuenta como negocio (ver esNegocio en app.js).
   // Pasajes va como PERSONAL (los envíos los paga el cliente, no es costo tuyo).
-  GASTOS_NEGOCIO: ['Ads', 'Materiales timeless'],
+  // "Canjes" = colaboraciones donde regalas producto a cambio de promoción.
+  GASTOS_NEGOCIO: ['Ads', 'Materiales timeless', 'Canjes'],
 };
