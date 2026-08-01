@@ -263,6 +263,23 @@ function getGastos(data){
   })).filter(g => g.date && g.monto > 0 && excl.indexOf(normName(g.categoria)) === -1);
 }
 
+// Cuántas unidades de cada producto se regalaron por canje (categoría
+// "Canjes" en Gastos, con el nombre del producto puesto en la Nota — acepta
+// combos/alias vía splitCombo, ej. "Anillos Duki" cuenta como 1 de cada
+// anillo). No hace falta tocar Stock/Cantidad pedido/Vendidos en tu Excel de
+// Venta_accs para esto: el dashboard resta los canjes él solo en
+// getPendientesDeStock, así no se distorsiona tu costo unitario.
+function getCanjesPorProducto(gastos){
+  const map = {};
+  gastos.filter(g => normName(g.categoria) === 'canjes').forEach(g => {
+    splitCombo(g.nota).forEach(p => {
+      const key = normProducto(p);
+      if(key) map[key] = (map[key] || 0) + 1;
+    });
+  });
+  return map;
+}
+
 // Suma de "Inversión" (compra de mercadería) de un mes — solo informativo,
 // NO se resta de la utilidad (ya está en el costo de lo vendido).
 function sumInversion(data, k){
@@ -378,7 +395,7 @@ function renderAll(data, missing){
   LAST = {ventas, gastos, pub, stocks, data};
   buildMonthOptions(ventas, gastos);
   renderHero(ventas, gastos, data, selectedMonthKey);
-  renderProyeccion(ventas, stocks, data, selectedMonthKey);
+  renderProyeccion(ventas, stocks, data, selectedMonthKey, gastos);
   renderStock(stocks, data);
   renderMeses(ventas, gastos, data);
   renderTop(stocks, data);
@@ -1080,7 +1097,8 @@ function renderHero(ventas, gastos, data, mk){
 }
 
 // 3. PROYECCIÓN
-function renderProyeccion(ventas, stocks, data, mk){
+function renderProyeccion(ventas, stocks, data, mk, gastos){
+  const canjes = getCanjesPorProducto(gastos || []);
   const extra = document.getElementById('projExtra');
   if(!data.stocks){
     extra.innerHTML = needCfg('Stocks');
@@ -1110,7 +1128,7 @@ function renderProyeccion(ventas, stocks, data, mk){
   // Si además te llega TODO lo pendiente (pedidos ya invertidos con stock aún
   // en 0, así que todavía no llegan), suma su potencial de ingresos/ganancia
   // neta al techo de stock actual.
-  const pendRows = getPendientesDeStock(stocks);
+  const pendRows = getPendientesDeStock(stocks, canjes);
   if(pendRows.length > 0){
     const pendIngresos = pendRows.reduce((s,r) => s + r.ingresos, 0);
     const pendGN = pendRows.reduce((s,r) => s + r.gananciaNeta, 0);
@@ -1120,20 +1138,27 @@ function renderProyeccion(ventas, stocks, data, mk){
   }
 
   extra.innerHTML = extraHtml;
-  renderPendientes(stocks);
+  renderPendientes(stocks, canjes);
 }
 
 // Pedidos comprados que aún no llegan (o no llegan del todo): lo pendiente de
 // un producto es "cantidad pedida − lo que ya está en stock − lo que ya se
-// vendió". Cubre tanto un pedido que no ha llegado nada de él (stock=0,
-// vendidos=0 → pendiente = cantidad pedida completa) como una LLEGADA
-// PARCIAL de dos proveedores distintos (ej. pediste 30, te llegaron 20 de un
-// proveedor y 10 siguen en camino de otro: pones stock=20, vendidos=0, y acá
-// solo quedan pendientes esas 10 — eso NO es un error, es lo que falta por
-// llegar). Apenas la cantidad en stock+vendidos alcance lo pedido, la fila
-// deja de aparecer sola — no hace falta tocar nada más.
-function getPendientesDeStock(stocks){
-  return stocks.map(s => ({ s, pendiente: s.cantidadPedido - s.stock - s.vendidos }))
+// vendió − lo que se regaló por canje (ver getCanjesPorProducto)". Cubre
+// tanto un pedido que no ha llegado nada de él (stock=0, vendidos=0 →
+// pendiente = cantidad pedida completa) como una LLEGADA PARCIAL de dos
+// proveedores distintos (ej. pediste 30, te llegaron 20 de un proveedor y 10
+// siguen en camino de otro: pones stock=20, vendidos=0, y acá solo quedan
+// pendientes esas 10 — eso NO es un error, es lo que falta por llegar). Si
+// además regalaste 1 unidad por canje, esa resta también aquí — así en tu
+// Excel de Venta_accs solo bajas el Stock, sin tocar Cantidad pedido ni
+// Vendidos (eso distorsionaría tu costo unitario). Apenas la cuenta alcance
+// lo pedido, la fila deja de aparecer sola — no hace falta tocar nada más.
+function getPendientesDeStock(stocks, canjes){
+  canjes = canjes || {};
+  return stocks.map(s => {
+    const canjeado = canjes[normProducto(s.producto)] || 0;
+    return { s, pendiente: s.cantidadPedido - s.stock - s.vendidos - canjeado };
+  })
     // Requiere precio > 0: así se excluyen materiales/insumos (bolsas, empaques,
     // etc.) que se compran sin llegar todavía pero nunca se venden — esos van
     // como gasto de "Materiales Timeless" en la app de gastos, no como pedido.
@@ -1170,13 +1195,13 @@ const PENDIENTES_VISTOS_KEY = 'timeless_pendientes_vistos';
 const PENDIENTES_LLEGADOS_KEY = 'timeless_pendientes_llegados';
 const PENDIENTE_LLEGADO_MS = 24 * 60 * 60 * 1000;
 
-function renderPendientes(stocks){
+function renderPendientes(stocks, canjes){
   const box = document.getElementById('pendingBlock');
   if(!box) return;
   box.classList.remove('clickable');
   box.onclick = null;
 
-  const rows = getPendientesDeStock(stocks);
+  const rows = getPendientesDeStock(stocks, canjes);
   const nowKeys = {};
   rows.forEach(r => { nowKeys[normName(r.producto)] = true; });
 
@@ -2157,7 +2182,7 @@ document.getElementById('monthSelect').addEventListener('change', (e) => {
   selectedMonthKey = e.target.value;
   if(LAST){
     renderHero(LAST.ventas, LAST.gastos, LAST.data, selectedMonthKey);
-    renderProyeccion(LAST.ventas, LAST.stocks, LAST.data, selectedMonthKey);
+    renderProyeccion(LAST.ventas, LAST.stocks, LAST.data, selectedMonthKey, LAST.gastos);
     renderAds(LAST.data, selectedMonthKey);
     renderRoas(LAST.ventas, LAST.data, selectedMonthKey);
   }
