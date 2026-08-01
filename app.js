@@ -341,13 +341,21 @@ const COMBO_ALIAS = {
   'anillos duki': ['Anillo demon wings duki', 'Anillo angel wings duki'],
 };
 
-// Separa un combo ("collar A + collar B") en sus piezas, o expande un alias corto
-// (ver COMBO_ALIAS) a los nombres reales. Si vendes una pieza suelta, anótala en
-// el Excel con el nombre exacto tal cual está en Stocks y no pasará por aquí.
+// Separa un combo ("collar A + collar B") en sus piezas, expandiendo cualquier
+// alias corto (ver COMBO_ALIAS) pieza por pieza — así funciona tanto si el
+// alias va solo ("Anillos Duki") como mezclado con otros productos
+// ("Anillos Duki + Pant Chain Chrome Hearts + Cinturon Dark Knight"). Si
+// vendes/canjeas una pieza suelta, anótala con el nombre exacto tal cual está
+// en Stocks y no pasará por aquí.
 function splitCombo(nombre){
-  const alias = COMBO_ALIAS[normName(nombre)];
-  if(alias) return alias;
-  return String(nombre||'').split('+').map(s => s.trim()).filter(Boolean);
+  const piezas = String(nombre||'').split('+').map(s => s.trim()).filter(Boolean);
+  const out = [];
+  piezas.forEach(p => {
+    const alias = COMBO_ALIAS[normName(p)];
+    if(alias) out.push(...alias);
+    else out.push(p);
+  });
+  return out;
 }
 
 // Pestaña "VentasDetalle": Fecha, Producto, Venta, Utilidad (cada venta con fecha)
