@@ -263,19 +263,36 @@ function getGastos(data){
   })).filter(g => g.date && g.monto > 0 && excl.indexOf(normName(g.categoria)) === -1);
 }
 
+// Notas de canje en texto libre (ej. "canje anillos", "Par Anillos más envío
+// canje") no siempre repiten el nombre exacto del producto ni el alias
+// completo ("Anillos Duki"). Estas reglas cubren esos casos por palabra
+// clave — hoy solo hace falta una, para el único producto de anillos del
+// catálogo; si se agrega otro "anillo" distinto habría que afinar esto.
+const CANJE_PALABRAS_CLAVE = [
+  { rx: /anillo/, productos: ['Anillo demon wings duki', 'Anillo angel wings duki'] },
+];
+
 // Cuántas unidades de cada producto se regalaron por canje (categoría
-// "Canjes" en Gastos, con el nombre del producto puesto en la Nota — acepta
-// combos/alias vía splitCombo, ej. "Anillos Duki" cuenta como 1 de cada
-// anillo). No hace falta tocar Stock/Cantidad pedido/Vendidos en tu Excel de
-// Venta_accs para esto: el dashboard resta los canjes él solo en
-// getPendientesDeStock, así no se distorsiona tu costo unitario.
+// "Canjes" en Gastos). Primero intenta leer la Nota igual que una venta
+// (nombre exacto, o alias/combo tipo "Anillos Duki" / "A + B"); si la nota es
+// texto libre que no matchea nada así, cae a CANJE_PALABRAS_CLAVE buscando
+// una palabra clave en cualquier parte del texto. No hace falta tocar
+// Stock/Cantidad pedido/Vendidos en tu Excel de Venta_accs para esto: el
+// dashboard resta los canjes él solo en getPendientesDeStock, así no se
+// distorsiona tu costo unitario.
 function getCanjesPorProducto(gastos){
   const map = {};
+  const suma = (nombres) => nombres.forEach(p => {
+    const key = normProducto(p);
+    if(key) map[key] = (map[key] || 0) + 1;
+  });
   gastos.filter(g => normName(g.categoria) === 'canjes').forEach(g => {
-    splitCombo(g.nota).forEach(p => {
-      const key = normProducto(p);
-      if(key) map[key] = (map[key] || 0) + 1;
-    });
+    const nota = normName(g.nota);
+    const esAliasOCombo = !!COMBO_ALIAS[nota] || g.nota.indexOf('+') !== -1;
+    if(esAliasOCombo){ suma(splitCombo(g.nota)); return; }
+    const regla = CANJE_PALABRAS_CLAVE.find(r => r.rx.test(nota));
+    if(regla){ suma(regla.productos); return; }
+    suma(splitCombo(g.nota));
   });
   return map;
 }
