@@ -1,7 +1,7 @@
 // Service worker del dashboard: cachea el "cascarón" de la app para abrir offline.
 // Los datos de Google Sheets NO se cachean aquí: app.js guarda el último
 // snapshot en localStorage y lo muestra cuando no hay conexión.
-const CACHE = 'timeless-dashboard-v46';
+const CACHE = 'timeless-dashboard-v47';
 const ASSETS = [
   './',
   './index.html',

@@ -1369,21 +1369,71 @@ const REPONER_DIAS = 14;
 // Ventana para medir la velocidad de venta (unidades/día).
 const VELOCIDAD_DIAS = 30;
 
-// Velocidad de venta por producto (unidades/día) en los últimos `dias` días,
-// separando combos ("A + B" = 1 unidad de A y 1 de B). Devuelve un mapa
-// normProducto -> unidades/día, para estimar en cuántos días se agota el stock.
+// Un hueco de esta cantidad de días seguidos SIN ninguna venta de un producto
+// se interpreta como que estuvo agotado (no una racha floja): así, si se
+// reabastece, "disponible desde" arranca en la venta que reanuda después del
+// hueco, no en su venta más antigua de todas.
+const REABASTECIDO_GAP_DIAS = 5;
+
+// Fecha desde la que cada producto (normProducto, ya separando combos) está
+// "disponible" para efectos de medir su velocidad: la de su primera venta
+// registrada, o la del día que se reanudaron las ventas después del hueco más
+// reciente de REABASTECIDO_GAP_DIAS+ días sin vender nada (señal de que se
+// agotó y volvió a llegar stock nuevo).
+function getDisponibleDesdePorProducto(detalle){
+  const porProducto = {};
+  detalle.forEach(v => {
+    splitCombo(v.producto).forEach(p => {
+      const key = normProducto(p);
+      if(!key) return;
+      (porProducto[key] || (porProducto[key] = [])).push(v.date);
+    });
+  });
+  const desde = {};
+  Object.keys(porProducto).forEach(key => {
+    const fechas = porProducto[key].slice().sort((a,b) => a - b);
+    let inicio = fechas[0];
+    for(let i = 1; i < fechas.length; i++){
+      const gap = Math.round((fechas[i] - fechas[i-1]) / 86400000);
+      if(gap >= REABASTECIDO_GAP_DIAS) inicio = fechas[i];
+    }
+    desde[key] = inicio;
+  });
+  return desde;
+}
+
+// Velocidad de venta por producto (unidades/día), separando combos ("A + B" =
+// 1 unidad de A y 1 de B). Ventana de hasta `dias` días, pero si un producto
+// está disponible desde hace menos que eso (recién traído, o reabastecido
+// tras agotarse — ver getDisponibleDesdePorProducto arriba), mide sobre esos
+// días reales en vez de dividir entre `dias` completos: si no, la velocidad
+// de algo recién repuesto sale subestimada y "días para agotar" sale inflado
+// (ej. si lo trajiste hace una semana, mide sobre esa semana, no sobre 30
+// días de los que la mayoría no tenías nada en stock).
 function getVelocidadVenta(data, dias){
   const vel = {};
   if(!data.ventasDetalle) return vel;
-  const cutoff = new Date(); cutoff.setHours(0,0,0,0); cutoff.setDate(cutoff.getDate() - dias);
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const detalle = getVentasDetalle(data);
+  const disponibleDesde = getDisponibleDesdePorProducto(detalle);
+
+  const ventana = {};
+  Object.keys(disponibleDesde).forEach(key => {
+    const diasDisponible = Math.floor((hoy - disponibleDesde[key]) / 86400000) + 1;
+    ventana[key] = Math.min(dias, Math.max(1, diasDisponible));
+  });
+
   const units = {};
-  getVentasDetalle(data).filter(v => v.date >= cutoff).forEach(v => {
+  detalle.forEach(v => {
     splitCombo(v.producto).forEach(p => {
       const key = normProducto(p);
-      if(key) units[key] = (units[key] || 0) + 1;
+      if(!key) return;
+      const w = ventana[key] || dias;
+      const cutoff = new Date(hoy); cutoff.setDate(cutoff.getDate() - w);
+      if(v.date >= cutoff) units[key] = (units[key] || 0) + 1;
     });
   });
-  Object.keys(units).forEach(k => { vel[k] = units[k] / dias; });
+  Object.keys(units).forEach(k => { vel[k] = units[k] / (ventana[k] || dias); });
   return vel;
 }
 
