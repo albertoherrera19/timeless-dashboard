@@ -1477,7 +1477,12 @@ function renderStock(stocks, data, gastos){
   getPendientesDeStock(stocks, canjes).forEach(p => { pendientesSet[normProducto(p.producto)] = true; });
 
   const vel = getVelocidadVenta(data, VELOCIDAD_DIAS);
-  const conStock = stocks.filter(s => s.stock > 0).map(s => {
+  // No se filtra por stock > 0: un producto que se acaba de agotar (stock=0)
+  // debe seguir apareciendo aquí — en rojo si todavía no lo repusiste, o con
+  // el check verde si ya está en camino — en vez de desaparecer sin avisar.
+  // Se excluyen solo los materiales/insumos sin precio de venta (precio=0),
+  // esos no son "inventario" en este sentido.
+  const conStock = stocks.filter(s => s.stock > 0 || s.precio > 0).map(s => {
     const dias = diasParaAgotar(s.stock, vel, s.producto);
     const porReponer = dias != null && dias <= REPONER_DIAS;
     const yaRepuesto = porReponer && !!pendientesSet[normProducto(s.producto)];
