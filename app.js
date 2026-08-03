@@ -1477,12 +1477,7 @@ function renderStock(stocks, data, gastos){
   getPendientesDeStock(stocks, canjes).forEach(p => { pendientesSet[normProducto(p.producto)] = true; });
 
   const vel = getVelocidadVenta(data, VELOCIDAD_DIAS);
-  // No se filtra por stock > 0: un producto que se acaba de agotar (stock=0)
-  // debe seguir apareciendo aquí — en rojo si todavía no lo repusiste, o con
-  // el check verde si ya está en camino — en vez de desaparecer sin avisar.
-  // Se excluyen solo los materiales/insumos sin precio de venta (precio=0),
-  // esos no son "inventario" en este sentido.
-  const conStock = stocks.filter(s => s.stock > 0 || s.precio > 0).map(s => {
+  const conStock = stocks.filter(s => s.stock > 0).map(s => {
     const dias = diasParaAgotar(s.stock, vel, s.producto);
     const porReponer = dias != null && dias <= REPONER_DIAS;
     const yaRepuesto = porReponer && !!pendientesSet[normProducto(s.producto)];
@@ -1525,6 +1520,7 @@ function renderStock(stocks, data, gastos){
 
   if(conStock.length === 0){
     box.innerHTML = '<div class="empty">No hay productos con stock ahora mismo. Cuando llegue mercadería y la registres en tu Excel, aparecerá aquí.</div>';
+    renderAgotadosYPorPedir(stocks);
     return;
   }
 
@@ -1549,7 +1545,104 @@ function renderStock(stocks, data, gastos){
         '<span class="stock-qty' + (s.isLow ? ' low' : '') + '">' + fmt0(s.stock) + ' und' + '</span>' +
       '</div>';
   }).join('');
+
+  renderAgotadosYPorPedir(stocks);
 }
+
+// Productos que se acaban de agotar (recién pasaron de tener stock a stock=0)
+// no se quedan en Inventario para siempre — eso ensuciaría la lista con cosas
+// que ya no vas a reponer nunca. En vez de eso, aparecen un rato (~48h) en
+// "Recién agotado" para que decidas: si lo vas a volver a traer, lo mandas a
+// "Por pedir" (una notita, no el detalle de Accesorios para traer); cuando ya
+// armaste el bloque de compra de verdad, lo quitas de "Por pedir" con el otro
+// botón. Todo esto es solo tuyo (localStorage), no se sincroniza a Sheets.
+const STOCK_AGOTADOS_VISTOS_KEY = 'timeless_stock_agotados_vistos';
+const STOCK_AGOTADOS_RECIENTES_KEY = 'timeless_stock_agotados_recientes';
+const STOCK_AGOTADO_RECIENTE_MS = 48 * 60 * 60 * 1000;
+const STOCK_POR_PEDIR_KEY = 'timeless_stock_por_pedir';
+
+function leerJSON(key, fallback){
+  try{ return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }catch(e){ return fallback; }
+}
+function guardarJSON(key, val){
+  try{ localStorage.setItem(key, JSON.stringify(val)); }catch(e){}
+}
+
+function renderAgotadosYPorPedir(stocks){
+  const boxRecientes = document.getElementById('stockAgotadosRecientes');
+  const boxPedir = document.getElementById('stockPorPedir');
+  if(!boxRecientes || !boxPedir) return;
+
+  const porPedir = leerJSON(STOCK_POR_PEDIR_KEY, []);
+  const porPedirKeys = {};
+  porPedir.forEach(r => { porPedirKeys[r.key] = true; });
+
+  const vistosAntes = leerJSON(STOCK_AGOTADOS_VISTOS_KEY, {});
+  let recientes = leerJSON(STOCK_AGOTADOS_RECIENTES_KEY, []);
+
+  // "Tenía stock" = snapshot de la corrida anterior. Si un producto que SÍ
+  // tenía stock ahora está en 0, se acaba de agotar -> entra a "recientes".
+  const tieneStockAhora = {};
+  stocks.forEach(s => { if(s.stock > 0) tieneStockAhora[normProducto(s.producto)] = s.producto; });
+
+  stocks.forEach(s => {
+    if(s.precio <= 0 || s.stock !== 0) return;
+    const key = normProducto(s.producto);
+    if(!key || porPedirKeys[key]) return;
+    if(vistosAntes[key] && !recientes.some(r => r.key === key)){
+      recientes.push({key, producto: s.producto, ts: Date.now()});
+    }
+  });
+
+  // Se cae de la lista si: volvió a tener stock, ya lo mandaste a "Por pedir",
+  // o pasó la ventana de ~48h sin que hicieras nada (para no ensuciar para
+  // siempre algo que no vas a reponer).
+  const ahora = Date.now();
+  recientes = recientes.filter(r =>
+    !tieneStockAhora[r.key] && !porPedirKeys[r.key] && (ahora - r.ts) < STOCK_AGOTADO_RECIENTE_MS);
+
+  guardarJSON(STOCK_AGOTADOS_VISTOS_KEY, tieneStockAhora);
+  guardarJSON(STOCK_AGOTADOS_RECIENTES_KEY, recientes);
+
+  boxRecientes.innerHTML = recientes.length === 0 ? '' :
+    '<div class="agotados-head">🔴 Recién agotado</div>' +
+    recientes.map(r =>
+      '<div class="agotado-row">' +
+        '<span class="agotado-name">' + esc(r.producto) + '</span>' +
+        '<button type="button" class="agotado-add" data-key="' + esc(r.key) + '" data-producto="' + esc(r.producto) + '">+ Por pedir</button>' +
+      '</div>'
+    ).join('');
+
+  boxPedir.innerHTML = porPedir.length === 0 ? '' :
+    '<div class="agotados-head">📋 Por pedir</div>' +
+    porPedir.map(r =>
+      '<div class="agotado-row">' +
+        '<span class="agotado-name">' + esc(r.producto) + '</span>' +
+        '<button type="button" class="pedir-listo" data-key="' + esc(r.key) + '">✓ Ya lo puse en Accesorios</button>' +
+      '</div>'
+    ).join('');
+}
+
+document.getElementById('stockAgotadosRecientes').addEventListener('click', (e) => {
+  const btn = e.target.closest('.agotado-add');
+  if(!btn) return;
+  const key = btn.getAttribute('data-key'), producto = btn.getAttribute('data-producto');
+  const recientes = leerJSON(STOCK_AGOTADOS_RECIENTES_KEY, []).filter(r => r.key !== key);
+  const porPedir = leerJSON(STOCK_POR_PEDIR_KEY, []);
+  if(!porPedir.some(r => r.key === key)) porPedir.push({key, producto, ts: Date.now()});
+  guardarJSON(STOCK_AGOTADOS_RECIENTES_KEY, recientes);
+  guardarJSON(STOCK_POR_PEDIR_KEY, porPedir);
+  if(LAST) renderAgotadosYPorPedir(LAST.stocks);
+});
+
+document.getElementById('stockPorPedir').addEventListener('click', (e) => {
+  const btn = e.target.closest('.pedir-listo');
+  if(!btn) return;
+  const key = btn.getAttribute('data-key');
+  const porPedir = leerJSON(STOCK_POR_PEDIR_KEY, []).filter(r => r.key !== key);
+  guardarJSON(STOCK_POR_PEDIR_KEY, porPedir);
+  if(LAST) renderAgotadosYPorPedir(LAST.stocks);
+});
 
 // 5. TOP PRODUCTOS
 function renderTop(stocks, data){
