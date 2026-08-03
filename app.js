@@ -421,7 +421,7 @@ function renderAll(data, missing){
   buildMonthOptions(ventas, gastos);
   renderHero(ventas, gastos, data, selectedMonthKey);
   renderProyeccion(ventas, stocks, data, selectedMonthKey, gastos);
-  renderStock(stocks, data);
+  renderStock(stocks, data, gastos);
   renderMeses(ventas, gastos, data);
   renderTop(stocks, data);
   renderRecent(data);
@@ -1462,19 +1462,30 @@ function diasParaAgotar(stock, velMap, nombre){
   return Math.round(stock / v);
 }
 
-function renderStock(stocks, data){
+function renderStock(stocks, data, gastos){
   const box = document.getElementById('stockList');
   const badge = document.getElementById('stockAlertBadge');
   if(!box) return;
   if(!data.stocks){ box.innerHTML = needCfg('Stocks'); if(badge) badge.textContent = ''; return; }
 
+  // Si un producto ya aparece en "Pedidos por llegar" (ya invertiste en
+  // reponerlo, sigue en camino), no tiene sentido decirte que "hay que
+  // reponer pronto" — ya lo hiciste. En vez de la alerta, se muestra un check
+  // de que ya está repuesto.
+  const canjes = getCanjesPorProducto(gastos || []);
+  const pendientesSet = {};
+  getPendientesDeStock(stocks, canjes).forEach(p => { pendientesSet[normProducto(p.producto)] = true; });
+
   const vel = getVelocidadVenta(data, VELOCIDAD_DIAS);
   const conStock = stocks.filter(s => s.stock > 0).map(s => {
     const dias = diasParaAgotar(s.stock, vel, s.producto);
+    const porReponer = dias != null && dias <= REPONER_DIAS;
+    const yaRepuesto = porReponer && !!pendientesSet[normProducto(s.producto)];
     return Object.assign({}, s, {
       diasAgota: dias,
       isLow: s.stock < STOCK_UMBRAL,
-      reponer: dias != null && dias <= REPONER_DIAS,
+      reponer: porReponer && !yaRepuesto,
+      yaRepuesto,
     });
   });
 
@@ -1514,14 +1525,17 @@ function renderStock(stocks, data){
 
   box.innerHTML = conStock.map(s => {
     let agotaTxt, agotaCls;
-    if(s.diasAgota == null){
+    if(s.yaRepuesto){
+      agotaTxt = '✓ repuesto'; agotaCls = 'repuesto';
+    } else if(s.diasAgota == null){
       agotaTxt = 'sin ventas'; agotaCls = 'none';
     } else if(s.diasAgota <= REPONER_DIAS){
       agotaTxt = '~' + s.diasAgota + 'd'; agotaCls = 'soon';
     } else {
       agotaTxt = '~' + s.diasAgota + 'd'; agotaCls = 'ok';
     }
-    return '<div class="stock-row' + (s.reponer ? ' reponer-row' : (s.isLow ? ' low-row' : '')) + '">' +
+    const rowCls = s.reponer ? ' reponer-row' : (s.yaRepuesto ? ' repuesto-row' : (s.isLow ? ' low-row' : ''));
+    return '<div class="stock-row' + rowCls + '">' +
         '<span class="stock-name">' + esc(s.producto) + '</span>' +
         '<span class="stock-agota ' + agotaCls + '">' + agotaTxt + '</span>' +
         '<span class="stock-qty' + (s.isLow ? ' low' : '') + '">' + fmt0(s.stock) + ' und' + '</span>' +
