@@ -354,7 +354,10 @@ h1{
 .stock-agota.soon{color:var(--bad);}
 .stock-agota.ok{color:var(--muted);}
 .stock-agota.none{color:var(--line);font-weight:400;}
-.stock-agota.repuesto{color:var(--ok);}
+.stock-repuesto{
+  font-size:10px;font-weight:700;color:var(--ok);flex-shrink:0;
+  white-space:nowrap;
+}
 .stock-hint{font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5;}
 .stock-qty{
   font-family:"SFMono-Regular",Consolas,Menlo,monospace;

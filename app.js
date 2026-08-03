@@ -1507,7 +1507,7 @@ function renderStock(stocks, data, gastos){
     // que solo "poco stock", porque un producto con 8 unidades que vuela puede
     // ser más urgente que uno con 3 que casi no se vende).
     if(reponer.length > 0){
-      badge.textContent = '⚠ ' + reponer.length + ' por reponer pronto';
+      badge.textContent = '⚠ ' + reponer.length + ' se agotan pronto';
       badge.className = 'stock-alert-badge alert';
     } else if(low.length > 0){
       badge.textContent = '⚠ ' + low.length + ' con poco stock';
@@ -1525,19 +1525,22 @@ function renderStock(stocks, data, gastos){
 
   box.innerHTML = conStock.map(s => {
     let agotaTxt, agotaCls;
-    if(s.yaRepuesto){
-      agotaTxt = '✓ repuesto'; agotaCls = 'repuesto';
-    } else if(s.diasAgota == null){
+    if(s.diasAgota == null){
       agotaTxt = 'sin ventas'; agotaCls = 'none';
     } else if(s.diasAgota <= REPONER_DIAS){
       agotaTxt = '~' + s.diasAgota + 'd'; agotaCls = 'soon';
     } else {
       agotaTxt = '~' + s.diasAgota + 'd'; agotaCls = 'ok';
     }
+    // "✓ repuesto" va AL COSTADO del indicador de agote (no lo reemplaza):
+    // sigue siendo útil saber que se agota pronto, solo que ya no hace falta
+    // pedir más porque ese pedido ya está en camino.
+    const repuestoTag = s.yaRepuesto ? '<span class="stock-repuesto">✓ repuesto</span>' : '';
     const rowCls = s.reponer ? ' reponer-row' : (s.yaRepuesto ? ' repuesto-row' : (s.isLow ? ' low-row' : ''));
     return '<div class="stock-row' + rowCls + '">' +
         '<span class="stock-name">' + esc(s.producto) + '</span>' +
         '<span class="stock-agota ' + agotaCls + '">' + agotaTxt + '</span>' +
+        repuestoTag +
         '<span class="stock-qty' + (s.isLow ? ' low' : '') + '">' + fmt0(s.stock) + ' und' + '</span>' +
       '</div>';
   }).join('');
