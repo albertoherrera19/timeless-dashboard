@@ -490,6 +490,19 @@ function vrecDesde(modo, hoy){
   }
   return d;
 }
+
+// Hasta qué día se muestra: en "esta semana" llega hasta el domingo (no se
+// corta en hoy), así ya se ven los envíos programados para mañana o pasado
+// que ya están registrados (motorizados de un día a otro). "7"/"15 días" sí
+// se cortan en hoy, tal cual estaban.
+function vrecHasta(modo, hoy){
+  if(modo === 'semana'){
+    const d = new Date(vrecDesde('semana', hoy));
+    d.setDate(d.getDate() + 6); // domingo de esa semana
+    return d;
+  }
+  return new Date(hoy);
+}
 const VREC_LABELS = {semana:'esta semana', '7':'estos 7 días', '15':'estos 15 días'};
 
 function renderVentasRecientes(data){
@@ -526,9 +539,10 @@ function renderVentasRecientes(data){
 
   const hoy = new Date(); hoy.setHours(0,0,0,0);
   const desde = vrecDesde(ventasRecModo, hoy);
+  const hasta = vrecHasta(ventasRecModo, hoy);
 
   const dias = [];
-  for(let d = new Date(desde); d <= hoy; d.setDate(d.getDate()+1)){
+  for(let d = new Date(desde); d <= hasta; d.setDate(d.getDate()+1)){
     const found = porDia[dayKey(d)];
     dias.push({date:new Date(d), venta: found ? found.venta : 0, ganancia: found ? found.ganancia : 0});
   }
@@ -550,8 +564,9 @@ function renderVentasRecientes(data){
   if(totalesEl){
     totalesEl.innerHTML = ['semana','7','15'].map(modo => {
       const desdeM = vrecDesde(modo, hoy);
+      const hastaM = vrecHasta(modo, hoy);
       let suma = 0;
-      for(let d = new Date(desdeM); d <= hoy; d.setDate(d.getDate()+1)){
+      for(let d = new Date(desdeM); d <= hastaM; d.setDate(d.getDate()+1)){
         const found = porDia[dayKey(d)];
         if(found) suma += found.venta;
       }
@@ -1205,6 +1220,9 @@ function getPendientesDeStock(stocks, canjes){
         invertido,
         ingresos,
         gananciaNeta: ingresos - invertido,
+        // Nunca se ha vendido ni una unidad -> es un producto nuevo (no un
+        // restock de algo que ya vendías), para mostrar el sello "Nuevo".
+        nuevo: s.vendidos === 0,
       };
     });
 }
@@ -1266,7 +1284,7 @@ function renderPendientes(stocks, canjes){
       '</div>' +
       rows.map(r =>
         '<div class="pend-row">' +
-          '<span class="pend-name">' + esc(r.producto) + '</span>' +
+          '<span class="pend-name">' + esc(r.producto) + (r.nuevo ? ' <span class="pend-nuevo">Nuevo</span>' : '') + '</span>' +
           '<span class="pend-amt mono">S/ ' + fmt(r.invertido) + '</span>' +
         '</div>'
       ).join('');
@@ -1301,7 +1319,7 @@ function renderPendientesFsBody(rows){
   const head = '<tr><th>Producto</th><th>Cant.</th><th>Invertido</th><th>Ingresos</th><th>Gan. neta</th></tr>';
   const body = rows.map(r =>
     '<tr>' +
-      '<td>' + esc(r.producto) + '</td>' +
+      '<td>' + esc(r.producto) + (r.nuevo ? ' <span class="pend-nuevo">Nuevo</span>' : '') + '</td>' +
       '<td class="mono">' + fmt0(r.cantidad) + '</td>' +
       '<td class="mono">S/ ' + fmt(r.invertido) + '</td>' +
       '<td class="mono">S/ ' + fmt(r.ingresos) + '</td>' +

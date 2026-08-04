@@ -318,6 +318,11 @@ h1{
 .pend-amt{font-weight:700;flex-shrink:0;}
 .pend-row.llego .pend-name{color:var(--muted);text-decoration:line-through;}
 .pend-row.llego .pend-amt{color:var(--ok);}
+.pend-nuevo{
+  display:inline-block;font-size:9px;font-weight:700;color:var(--ok);
+  border:1px solid var(--ok);border-radius:8px;padding:1px 5px;
+  vertical-align:middle;white-space:nowrap;
+}
 
 /* 3b. Inventario / stock con alerta de poco stock */
 .stock-alert-badge{font-size:11px;font-weight:700;color:var(--ok);flex-shrink:0;}
