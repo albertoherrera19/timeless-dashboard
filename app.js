@@ -1520,7 +1520,7 @@ function renderStock(stocks, data, gastos){
 
   if(conStock.length === 0){
     box.innerHTML = '<div class="empty">No hay productos con stock ahora mismo. Cuando llegue mercadería y la registres en tu Excel, aparecerá aquí.</div>';
-    renderAgotadosYPorPedir(stocks);
+    renderAgotadosYPorPedir(stocks, gastos);
     return;
   }
 
@@ -1546,7 +1546,7 @@ function renderStock(stocks, data, gastos){
       '</div>';
   }).join('');
 
-  renderAgotadosYPorPedir(stocks);
+  renderAgotadosYPorPedir(stocks, gastos);
 }
 
 // Productos que se acaban de agotar (recién pasaron de tener stock a stock=0)
@@ -1568,7 +1568,7 @@ function guardarJSON(key, val){
   try{ localStorage.setItem(key, JSON.stringify(val)); }catch(e){}
 }
 
-function renderAgotadosYPorPedir(stocks){
+function renderAgotadosYPorPedir(stocks, gastos){
   const boxRecientes = document.getElementById('stockAgotadosRecientes');
   const boxPedir = document.getElementById('stockPorPedir');
   if(!boxRecientes || !boxPedir) return;
@@ -1577,7 +1577,19 @@ function renderAgotadosYPorPedir(stocks){
   const porPedirKeys = {};
   porPedir.forEach(r => { porPedirKeys[r.key] = true; });
 
+  // Si ya aparece en "Pedidos por llegar" (ya lo repusiste, sigue en camino),
+  // no tiene sentido avisar "se agotó, ¿lo pides?" — sería redundante.
+  const canjes = getCanjesPorProducto(gastos || []);
+  const pendientesSet = {};
+  getPendientesDeStock(stocks, canjes).forEach(p => { pendientesSet[normProducto(p.producto)] = true; });
+
   const vistosAntes = leerJSON(STOCK_AGOTADOS_VISTOS_KEY, {});
+  // Primera vez que corre esto en este dispositivo (nunca se guardó un "antes"
+  // con qué comparar): en vez de esperar a la PRÓXIMA vez que algo se agote,
+  // se toma la foto de HOY como punto de partida y se avisa de una vez de lo
+  // que ya está en 0 ahora mismo (así no hay que hacer el truco de poner y
+  // quitar stock a mano para "activarlo").
+  const esPrimeraVez = Object.keys(vistosAntes).length === 0;
   let recientes = leerJSON(STOCK_AGOTADOS_RECIENTES_KEY, []);
 
   // "Tenía stock" = snapshot de la corrida anterior. Si un producto que SÍ
@@ -1588,18 +1600,20 @@ function renderAgotadosYPorPedir(stocks){
   stocks.forEach(s => {
     if(s.precio <= 0 || s.stock !== 0) return;
     const key = normProducto(s.producto);
-    if(!key || porPedirKeys[key]) return;
-    if(vistosAntes[key] && !recientes.some(r => r.key === key)){
+    if(!key || porPedirKeys[key] || pendientesSet[key]) return;
+    if((esPrimeraVez || vistosAntes[key]) && !recientes.some(r => r.key === key)){
       recientes.push({key, producto: s.producto, ts: Date.now()});
     }
   });
 
   // Se cae de la lista si: volvió a tener stock, ya lo mandaste a "Por pedir",
-  // o pasó la ventana de ~48h sin que hicieras nada (para no ensuciar para
-  // siempre algo que no vas a reponer).
+  // ya quedó pendiente por otro lado (ej. un canje), o pasó la ventana de
+  // ~48h sin que hicieras nada (para no ensuciar para siempre algo que no
+  // vas a reponer).
   const ahora = Date.now();
   recientes = recientes.filter(r =>
-    !tieneStockAhora[r.key] && !porPedirKeys[r.key] && (ahora - r.ts) < STOCK_AGOTADO_RECIENTE_MS);
+    !tieneStockAhora[r.key] && !porPedirKeys[r.key] && !pendientesSet[r.key] &&
+    (ahora - r.ts) < STOCK_AGOTADO_RECIENTE_MS);
 
   guardarJSON(STOCK_AGOTADOS_VISTOS_KEY, tieneStockAhora);
   guardarJSON(STOCK_AGOTADOS_RECIENTES_KEY, recientes);
@@ -1632,7 +1646,7 @@ document.getElementById('stockAgotadosRecientes').addEventListener('click', (e) 
   if(!porPedir.some(r => r.key === key)) porPedir.push({key, producto, ts: Date.now()});
   guardarJSON(STOCK_AGOTADOS_RECIENTES_KEY, recientes);
   guardarJSON(STOCK_POR_PEDIR_KEY, porPedir);
-  if(LAST) renderAgotadosYPorPedir(LAST.stocks);
+  if(LAST) renderAgotadosYPorPedir(LAST.stocks, LAST.gastos);
 });
 
 document.getElementById('stockPorPedir').addEventListener('click', (e) => {
@@ -1641,7 +1655,7 @@ document.getElementById('stockPorPedir').addEventListener('click', (e) => {
   const key = btn.getAttribute('data-key');
   const porPedir = leerJSON(STOCK_POR_PEDIR_KEY, []).filter(r => r.key !== key);
   guardarJSON(STOCK_POR_PEDIR_KEY, porPedir);
-  if(LAST) renderAgotadosYPorPedir(LAST.stocks);
+  if(LAST) renderAgotadosYPorPedir(LAST.stocks, LAST.gastos);
 });
 
 // 5. TOP PRODUCTOS
