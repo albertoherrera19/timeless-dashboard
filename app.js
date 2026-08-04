@@ -544,6 +544,11 @@ function renderVentasRecientes(data){
   const dias = [];
   for(let d = new Date(desde); d <= hasta; d.setDate(d.getDate()+1)){
     const found = porDia[dayKey(d)];
+    // Los días futuros sin ninguna venta registrada se ocultan (no se sabe
+    // aún si va a haber algo ese día); un día futuro CON venta ya anotada sí
+    // se muestra, aunque haya días vacíos de por medio. Hoy y el pasado
+    // siempre se muestran, tengan venta o no (es tu historial real).
+    if(d > hoy && !found) continue;
     dias.push({date:new Date(d), venta: found ? found.venta : 0, ganancia: found ? found.ganancia : 0});
   }
 
@@ -1139,6 +1144,7 @@ function renderHero(ventas, gastos, data, mk){
 // 3. PROYECCIÓN
 function renderProyeccion(ventas, stocks, data, mk, gastos){
   const canjes = getCanjesPorProducto(gastos || []);
+  const vendidosHist = getVendidosHistoricoSet(data);
   const extra = document.getElementById('projExtra');
   if(!data.stocks){
     extra.innerHTML = needCfg('Stocks');
@@ -1168,7 +1174,7 @@ function renderProyeccion(ventas, stocks, data, mk, gastos){
   // Si además te llega TODO lo pendiente (pedidos ya invertidos con stock aún
   // en 0, así que todavía no llegan), suma su potencial de ingresos/ganancia
   // neta al techo de stock actual.
-  const pendRows = getPendientesDeStock(stocks, canjes);
+  const pendRows = getPendientesDeStock(stocks, canjes, vendidosHist);
   if(pendRows.length > 0){
     const pendIngresos = pendRows.reduce((s,r) => s + r.ingresos, 0);
     const pendGN = pendRows.reduce((s,r) => s + r.gananciaNeta, 0);
@@ -1178,7 +1184,7 @@ function renderProyeccion(ventas, stocks, data, mk, gastos){
   }
 
   extra.innerHTML = extraHtml;
-  renderPendientes(stocks, canjes);
+  renderPendientes(stocks, canjes, vendidosHist);
 }
 
 // Pedidos comprados que aún no llegan (o no llegan del todo): lo pendiente de
@@ -1193,8 +1199,26 @@ function renderProyeccion(ventas, stocks, data, mk, gastos){
 // Excel de Venta_accs solo bajas el Stock, sin tocar Cantidad pedido ni
 // Vendidos (eso distorsionaría tu costo unitario). Apenas la cuenta alcance
 // lo pedido, la fila deja de aparecer sola — no hace falta tocar nada más.
-function getPendientesDeStock(stocks, canjes){
+// Todo producto (o pieza de combo) que alguna vez aparece en tu Excel de
+// Ventas, sin importar qué diga "Vendidos" en Stocks — ese se resetea a 0
+// cada vez que abres un bloque/pedido nuevo para algo que ya vendías antes
+// (ver el fix de sumar bloques). Esto es lo que de verdad indica si un
+// producto es nuevo para el sello "Nuevo" en Pedidos por llegar.
+function getVendidosHistoricoSet(data){
+  const set = {};
+  if(!data || !data.ventasDetalle) return set;
+  getVentasDetalle(data).forEach(v => {
+    splitCombo(v.producto).forEach(p => {
+      const key = normProducto(p);
+      if(key) set[key] = true;
+    });
+  });
+  return set;
+}
+
+function getPendientesDeStock(stocks, canjes, vendidosHist){
   canjes = canjes || {};
+  vendidosHist = vendidosHist || {};
   return stocks.map(s => {
     const canjeado = canjes[normProducto(s.producto)] || 0;
     return { s, pendiente: s.cantidadPedido - s.stock - s.vendidos - canjeado };
@@ -1220,9 +1244,9 @@ function getPendientesDeStock(stocks, canjes){
         invertido,
         ingresos,
         gananciaNeta: ingresos - invertido,
-        // Nunca se ha vendido ni una unidad -> es un producto nuevo (no un
-        // restock de algo que ya vendías), para mostrar el sello "Nuevo".
-        nuevo: s.vendidos === 0,
+        // Nunca aparece en tu historial de Ventas -> es un producto nuevo (no
+        // un restock de algo que ya vendías), para mostrar el sello "Nuevo".
+        nuevo: !vendidosHist[normProducto(s.producto)],
       };
     });
 }
@@ -1238,13 +1262,13 @@ const PENDIENTES_VISTOS_KEY = 'timeless_pendientes_vistos';
 const PENDIENTES_LLEGADOS_KEY = 'timeless_pendientes_llegados';
 const PENDIENTE_LLEGADO_MS = 24 * 60 * 60 * 1000;
 
-function renderPendientes(stocks, canjes){
+function renderPendientes(stocks, canjes, vendidosHist){
   const box = document.getElementById('pendingBlock');
   if(!box) return;
   box.classList.remove('clickable');
   box.onclick = null;
 
-  const rows = getPendientesDeStock(stocks, canjes);
+  const rows = getPendientesDeStock(stocks, canjes, vendidosHist);
   const nowKeys = {};
   rows.forEach(r => { nowKeys[normName(r.producto)] = true; });
 
