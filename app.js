@@ -1560,6 +1560,14 @@ const STOCK_AGOTADOS_VISTOS_KEY = 'timeless_stock_agotados_vistos';
 const STOCK_AGOTADOS_RECIENTES_KEY = 'timeless_stock_agotados_recientes';
 const STOCK_AGOTADO_RECIENTE_MS = 48 * 60 * 60 * 1000;
 const STOCK_POR_PEDIR_KEY = 'timeless_stock_por_pedir';
+// Clave APARTE (nueva) solo para el arranque en frío: STOCK_AGOTADOS_VISTOS_KEY
+// ya se guardaba desde la primera versión de esta función, antes de que
+// existiera el arranque en frío — así que en un teléfono que ya abrió esa
+// versión, ese "antes" ya no estaba vacío y el arranque en frío nunca
+// disparaba. Con una clave nueva, nunca existió en ningún teléfono, así que
+// el aviso de una sola vez sí se dispara la primera vez que corre esta
+// versión, sin importar qué había guardado antes.
+const STOCK_AGOTADOS_BOOTSTRAP_KEY = 'timeless_stock_agotados_bootstrap_v2';
 
 function leerJSON(key, fallback){
   try{ return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }catch(e){ return fallback; }
@@ -1584,12 +1592,14 @@ function renderAgotadosYPorPedir(stocks, gastos){
   getPendientesDeStock(stocks, canjes).forEach(p => { pendientesSet[normProducto(p.producto)] = true; });
 
   const vistosAntes = leerJSON(STOCK_AGOTADOS_VISTOS_KEY, {});
-  // Primera vez que corre esto en este dispositivo (nunca se guardó un "antes"
-  // con qué comparar): en vez de esperar a la PRÓXIMA vez que algo se agote,
-  // se toma la foto de HOY como punto de partida y se avisa de una vez de lo
-  // que ya está en 0 ahora mismo (así no hay que hacer el truco de poner y
-  // quitar stock a mano para "activarlo").
-  const esPrimeraVez = Object.keys(vistosAntes).length === 0;
+  // Primera vez que corre ESTA versión en este dispositivo (con la clave de
+  // bootstrap aparte, no con STOCK_AGOTADOS_VISTOS_KEY — esa ya se guardaba
+  // desde la versión vieja, antes de que existiera el arranque en frío, así
+  // que en un teléfono que ya la había abierto una vez, "antes" nunca estaba
+  // vacío y el arranque en frío no disparaba): en vez de esperar a la
+  // PRÓXIMA vez que algo se agote, se toma la foto de HOY como punto de
+  // partida y se avisa de una vez de lo que ya está en 0 ahora mismo.
+  const esPrimeraVez = !localStorage.getItem(STOCK_AGOTADOS_BOOTSTRAP_KEY);
   let recientes = leerJSON(STOCK_AGOTADOS_RECIENTES_KEY, []);
 
   // "Tenía stock" = snapshot de la corrida anterior. Si un producto que SÍ
@@ -1617,6 +1627,7 @@ function renderAgotadosYPorPedir(stocks, gastos){
 
   guardarJSON(STOCK_AGOTADOS_VISTOS_KEY, tieneStockAhora);
   guardarJSON(STOCK_AGOTADOS_RECIENTES_KEY, recientes);
+  try{ localStorage.setItem(STOCK_AGOTADOS_BOOTSTRAP_KEY, '1'); }catch(e){}
 
   boxRecientes.innerHTML = recientes.length === 0 ? '' :
     '<div class="agotados-head">🔴 Recién agotado</div>' +
