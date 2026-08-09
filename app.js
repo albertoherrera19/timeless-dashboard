@@ -1368,15 +1368,15 @@ function renderPendientesFsBody(rows){
     '<div class="fs-metric-row"><span class="fs-mname">Ingresos si vendes todo (venta bruta)</span><span class="fs-mamt">S/ ' + fmt(totIng) + '</span></div>' +
     '<div class="fs-metric-row"><span class="fs-mname">Ganancia neta si vendes todo</span><span class="fs-mamt">S/ ' + fmt(totGN) + '</span></div>';
 
-  const head = '<tr><th>Producto</th><th>Pedido</th><th>Cant.</th><th>Invertido</th><th>Ingresos</th><th>Gan. neta</th></tr>';
+  const head = '<tr><th>Producto</th><th>Cant.</th><th>Invertido</th><th>Ingresos</th><th>Gan. neta</th><th>Pedido</th></tr>';
   const body = rows.map(r =>
     '<tr>' +
       '<td>' + esc(r.producto) + (r.nuevo ? ' <span class="pend-nuevo">Nuevo</span>' : '') + '</td>' +
-      '<td class="pend-td-fecha">' + esc(fmtPedidoMeta(r.fechaPedido, r.plataforma) || '—') + '</td>' +
       '<td class="mono">' + fmt0(r.cantidad) + '</td>' +
       '<td class="mono">S/ ' + fmt(r.invertido) + '</td>' +
       '<td class="mono">S/ ' + fmt(r.ingresos) + '</td>' +
       '<td class="mono">S/ ' + fmt(r.gananciaNeta) + '</td>' +
+      '<td class="pend-td-fecha">' + esc(fmtPedidoMeta(r.fechaPedido, r.plataforma) || '—') + '</td>' +
     '</tr>'
   ).join('');
   const table = '<div class="table-title">Detalle por producto</div>' + '<div class="ads-daily-wrap"><table class="ads-daily">' + head + body + '</table></div>';
