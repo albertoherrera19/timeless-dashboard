@@ -314,7 +314,11 @@ h1{
   border-top:1px dashed var(--line);
   font-size:12px;
 }
+.pend-info{display:flex;flex-direction:column;gap:1px;min-width:0;}
 .pend-name{color:var(--bone);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* "Shein · 03/08 · hace 5 días": cuándo se pidió y cuánto lleva sin llegar. */
+.pend-meta{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pend-td-fecha{font-size:11px;color:var(--muted);white-space:nowrap;}
 .pend-amt{font-weight:700;flex-shrink:0;}
 .pend-row.llego .pend-name{color:var(--muted);text-decoration:line-through;}
 .pend-row.llego .pend-amt{color:var(--ok);}

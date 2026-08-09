@@ -408,6 +408,11 @@ function getStocks(data){
     gananciaNeta: parseMoney(r[5]),
     invertido: parseMoney(r[6]),
     cantidadPedido: parseMoney(r[7]),
+    // Día en que se hizo el pedido y tienda donde se compró: salen del bloque
+    // de color de la columna A del Excel (ver sync-ventas.ps1). Se usan para
+    // mostrar "pedido el 3 ago · hace 5 días" en Pedidos por llegar.
+    fechaPedido: parseDateSmart(r[8]),
+    plataforma: (r[9]||'').trim(),
   })).filter(s => s.producto && s.producto.toLowerCase() !== 'totales');
 }
 
@@ -1247,8 +1252,27 @@ function getPendientesDeStock(stocks, canjes, vendidosHist){
         // Nunca aparece en tu historial de Ventas -> es un producto nuevo (no
         // un restock de algo que ya vendías), para mostrar el sello "Nuevo".
         nuevo: !vendidosHist[normProducto(s.producto)],
+        fechaPedido: s.fechaPedido || null,
+        plataforma: s.plataforma || '',
       };
     });
+}
+
+// "Shein · 03/08 · hace 5 días" — el día en que se pidió y cuánto lleva sin
+// llegar, para tantear si ya toca preocuparse (los de Alibaba suelen demorar
+// mucho más que los de Shein/Temu). Si el Excel no trae fecha para ese bloque,
+// devuelve solo la tienda (o nada).
+function fmtPedidoMeta(fecha, plataforma){
+  const partes = [];
+  if(plataforma) partes.push(plataforma);
+  if(fecha){
+    partes.push(fmtDateShort(fecha));
+    const dias = Math.round((dayKey(new Date()) - dayKey(fecha)) / 86400000);
+    if(dias === 0) partes.push('hoy');
+    else if(dias === 1) partes.push('ayer');
+    else if(dias > 1) partes.push('hace ' + dias + ' días');
+  }
+  return partes.join(' · ');
 }
 
 // Pedidos comprados que aún no llegan (derivados directo de Stocks, ver
@@ -1306,12 +1330,16 @@ function renderPendientes(stocks, canjes, vendidosHist){
         '<span>📦 Dinero en pedidos por llegar · Invertido</span>' +
         '<span class="mono accent">S/ ' + fmt(totalPorLlegar) + '</span>' +
       '</div>' +
-      rows.map(r =>
-        '<div class="pend-row">' +
-          '<span class="pend-name">' + esc(r.producto) + (r.nuevo ? ' <span class="pend-nuevo">Nuevo</span>' : '') + '</span>' +
+      rows.map(r => {
+        const meta = fmtPedidoMeta(r.fechaPedido, r.plataforma);
+        return '<div class="pend-row">' +
+          '<span class="pend-info">' +
+            '<span class="pend-name">' + esc(r.producto) + (r.nuevo ? ' <span class="pend-nuevo">Nuevo</span>' : '') + '</span>' +
+            (meta ? '<span class="pend-meta">' + esc(meta) + '</span>' : '') +
+          '</span>' +
           '<span class="pend-amt mono">S/ ' + fmt(r.invertido) + '</span>' +
-        '</div>'
-      ).join('');
+        '</div>';
+      }).join('');
   }
   if(llegados.length > 0){
     html += '<div class="pend-arrived-note">✓ ' + esc(llegados.map(l => l.producto).join(', ')) +
@@ -1340,10 +1368,11 @@ function renderPendientesFsBody(rows){
     '<div class="fs-metric-row"><span class="fs-mname">Ingresos si vendes todo (venta bruta)</span><span class="fs-mamt">S/ ' + fmt(totIng) + '</span></div>' +
     '<div class="fs-metric-row"><span class="fs-mname">Ganancia neta si vendes todo</span><span class="fs-mamt">S/ ' + fmt(totGN) + '</span></div>';
 
-  const head = '<tr><th>Producto</th><th>Cant.</th><th>Invertido</th><th>Ingresos</th><th>Gan. neta</th></tr>';
+  const head = '<tr><th>Producto</th><th>Pedido</th><th>Cant.</th><th>Invertido</th><th>Ingresos</th><th>Gan. neta</th></tr>';
   const body = rows.map(r =>
     '<tr>' +
       '<td>' + esc(r.producto) + (r.nuevo ? ' <span class="pend-nuevo">Nuevo</span>' : '') + '</td>' +
+      '<td class="pend-td-fecha">' + esc(fmtPedidoMeta(r.fechaPedido, r.plataforma) || '—') + '</td>' +
       '<td class="mono">' + fmt0(r.cantidad) + '</td>' +
       '<td class="mono">S/ ' + fmt(r.invertido) + '</td>' +
       '<td class="mono">S/ ' + fmt(r.ingresos) + '</td>' +
