@@ -1885,8 +1885,10 @@ const SEG_ESTADOS = {
 function segEstadoInfo(estado){
   return SEG_ESTADOS[estado] || {txt: estado || 'Sin info aún', cls:'gris'};
 }
-// Link de rastreo público (parcelsapp acepta cualquier número directo en la URL).
-function segTrackUrl(tracking){
+// Link de rastreo: si Alberto pegó uno propio para ese paquete se usa ese; si
+// no, se arma solo el de parcelsapp (acepta cualquier número directo en la URL).
+function segTrackUrl(tracking, link){
+  if(link && /^https?:\/\//i.test(link.trim())) return link.trim();
   return 'https://parcelsapp.com/en/tracking/' + encodeURIComponent(tracking);
 }
 
@@ -1964,7 +1966,10 @@ function renderSeguimiento(){
           '<div class="seg-meta">' + (sub ? esc(sub) : '<span class="muted">Toca ↗ para ver el estado del paquete</span>') + '</div>' +
           '<div class="seg-track">' + esc(s.tracking) + '</div>' +
         '</div>' +
-        '<a class="seg-link" href="' + esc(segTrackUrl(s.tracking)) + '" target="_blank" rel="noopener" title="Abrir rastreo">↗</a>' +
+        '<div class="seg-btns">' +
+          '<button type="button" class="seg-copy" data-track="' + esc(s.tracking) + '" title="Copiar número">⧉</button>' +
+          '<a class="seg-link" href="' + esc(segTrackUrl(s.tracking, s.link)) + '" target="_blank" rel="noopener" title="Abrir rastreo">↗</a>' +
+        '</div>' +
       '</div>';
   }).join('');
 
@@ -1974,9 +1979,29 @@ function renderSeguimiento(){
       const s = seguimiento.find(x => x.id === id);
       if(s) openSeguimientoForm(s);
     });
-    const link = el.querySelector('.seg-link');
-    if(link) link.addEventListener('click', ev => ev.stopPropagation());
+    el.querySelectorAll('.seg-link, .seg-copy').forEach(b => b.addEventListener('click', ev => ev.stopPropagation()));
+    const copyBtn = el.querySelector('.seg-copy');
+    if(copyBtn) copyBtn.addEventListener('click', () => segCopiar(copyBtn));
   });
+}
+
+// Copia el número de tracking al portapapeles y da feedback breve en el botón.
+function segCopiar(btn){
+  const num = btn.getAttribute('data-track') || '';
+  const ok = () => { const t = btn.textContent; btn.textContent = '✓'; btn.classList.add('copiado'); setTimeout(() => { btn.textContent = t; btn.classList.remove('copiado'); }, 1200); };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(num).then(ok).catch(() => segCopiarFallback(num, ok));
+  } else {
+    segCopiarFallback(num, ok);
+  }
+}
+function segCopiarFallback(num, ok){
+  try{
+    const ta = document.createElement('textarea');
+    ta.value = num; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta); ok();
+  }catch(e){ alert('Copia manual: ' + num); }
 }
 
 // Formulario de alta/edición de un paquete (mismo patrón de pantalla completa
@@ -2003,8 +2028,12 @@ function renderSeguimientoForm(s){
         '<input type="date" class="cf-input" id="segFecha" value="' + fPed + '"></div>' +
     '</div>' +
 
+    '<label class="cf-label">Link de rastreo propio (opcional)</label>' +
+    '<input type="text" inputmode="url" class="cf-input" id="segLink" placeholder="Déjalo vacío y se usa parcelsapp solo" value="' + esc((s&&s.link)||'') + '">' +
+    '<div class="cf-estado-hint">Si lo dejas vacío, el botón ↗ abre parcelsapp con tu número. Pega un link aquí solo si prefieres otra página (ej. mailamericas) para este paquete.</div>' +
+
     (editando && s.estado ? '<div class="seg-form-estado">Último estado: <b>' + esc(segEstadoInfo(s.estado).txt) + '</b>' + (s.descripcion?' · ' + esc(s.descripcion):'') + '</div>' : '') +
-    (editando ? '<a class="cf-link-track" href="' + esc(segTrackUrl(s.tracking)) + '" target="_blank" rel="noopener">↗ Abrir rastreo en el navegador</a>' : '') +
+    (editando ? '<a class="cf-link-track" href="' + esc(segTrackUrl(s.tracking, s.link)) + '" target="_blank" rel="noopener">↗ Abrir rastreo en el navegador</a>' : '') +
 
     '<div class="cf-actions">' +
       (editando ? '<button type="button" class="cf-btn cf-btn-danger" id="segEliminar">Eliminar</button>' : '') +
@@ -2024,6 +2053,7 @@ function wireSeguimientoForm(s){
       productos: document.getElementById('segProductos').value.trim(),
       plataforma: document.getElementById('segPlataforma').value.trim(),
       fechaPedido: document.getElementById('segFecha').value || '',
+      link: document.getElementById('segLink').value.trim(),
       archivado: archivar ? true : (s ? s.archivado : false),
     };
     const btn = document.getElementById(archivar ? 'segArchivar' : 'segGuardar');
@@ -2070,7 +2100,7 @@ function renderSeguimientoFsBody(){
           '<div class="seg-meta">' + (sub?esc(sub):'<span class="muted">Toca ↗ para ver el estado</span>') + '</div>' +
           '<div class="seg-track">' + esc(s.tracking) + '</div>' +
         '</div>' +
-        '<a class="seg-link" href="' + esc(segTrackUrl(s.tracking)) + '" target="_blank" rel="noopener">↗</a>' +
+        '<a class="seg-link" href="' + esc(segTrackUrl(s.tracking, s.link)) + '" target="_blank" rel="noopener">↗</a>' +
       '</div>';
   };
   let html = '<div class="seg-fs-list">' + activos.map(fila).join('');
