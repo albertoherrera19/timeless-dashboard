@@ -1946,16 +1946,22 @@ function renderSeguimiento(){
   });
 
   box.innerHTML = ordenados.map(s => {
-    const info = segEstadoInfo(s.estado);
-    const cuando = s.actualizadoEn ? segHace(s.actualizadoEn) : '';
+    // El badge de estado solo aparece si hay estado (o sea, si algún día se
+    // conecta la API). En modo manual no hay estado, así que no se muestra un
+    // "Sin info" en cada fila — se ve más limpio.
+    const info = s.estado ? segEstadoInfo(s.estado) : null;
+    // Si ya hay estado (API), muestra cuándo se actualizó; si no (modo manual),
+    // muestra cuánto lleva desde que se pidió, para tantear la demora.
+    const cuando = s.actualizadoEn ? segHace(s.actualizadoEn)
+                 : (s.fechaPedido ? 'pedido ' + segHace(s.fechaPedido) : '');
     const sub = [s.plataforma, s.ubicacion || s.descripcion, cuando].filter(Boolean).join(' · ');
     return '<div class="seg-row" data-id="' + esc(s.id) + '">' +
         '<div class="seg-main">' +
           '<div class="seg-top-line">' +
             '<span class="seg-prod">' + esc(s.productos || s.tracking) + '</span>' +
-            '<span class="seg-badge ' + info.cls + '">' + esc(info.txt) + '</span>' +
+            (info ? '<span class="seg-badge ' + info.cls + '">' + esc(info.txt) + '</span>' : '') +
           '</div>' +
-          '<div class="seg-meta">' + (sub ? esc(sub) : '<span class="muted">Sin estado aún · se actualiza sola</span>') + '</div>' +
+          '<div class="seg-meta">' + (sub ? esc(sub) : '<span class="muted">Toca ↗ para ver el estado del paquete</span>') + '</div>' +
           '<div class="seg-track">' + esc(s.tracking) + '</div>' +
         '</div>' +
         '<a class="seg-link" href="' + esc(segTrackUrl(s.tracking)) + '" target="_blank" rel="noopener" title="Abrir rastreo">↗</a>' +
@@ -2055,13 +2061,13 @@ function renderSeguimientoFsBody(){
   const activos = seguimiento.filter(s => !s.archivado);
   const archivados = seguimiento.filter(s => s.archivado);
   const fila = s => {
-    const info = segEstadoInfo(s.estado);
+    const info = s.estado ? segEstadoInfo(s.estado) : null;
     const sub = [s.plataforma, s.ubicacion || s.descripcion, s.actualizadoEn?segHace(s.actualizadoEn):''].filter(Boolean).join(' · ');
     return '<div class="seg-row" data-id="' + esc(s.id) + '">' +
         '<div class="seg-main">' +
           '<div class="seg-top-line"><span class="seg-prod">' + esc(s.productos||s.tracking) + '</span>' +
-            '<span class="seg-badge ' + info.cls + '">' + esc(info.txt) + '</span></div>' +
-          '<div class="seg-meta">' + (sub?esc(sub):'<span class="muted">Sin estado aún</span>') + '</div>' +
+            (info ? '<span class="seg-badge ' + info.cls + '">' + esc(info.txt) + '</span>' : '') + '</div>' +
+          '<div class="seg-meta">' + (sub?esc(sub):'<span class="muted">Toca ↗ para ver el estado</span>') + '</div>' +
           '<div class="seg-track">' + esc(s.tracking) + '</div>' +
         '</div>' +
         '<a class="seg-link" href="' + esc(segTrackUrl(s.tracking)) + '" target="_blank" rel="noopener">↗</a>' +
