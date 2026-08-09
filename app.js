@@ -1147,6 +1147,21 @@ function renderHero(ventas, gastos, data, mk){
 }
 
 // 3. PROYECCIÓN
+// "Stock invertido": la plata que tienes metida en la mercadería que YA está
+// físicamente en tu mano ahora mismo. Por producto = costo unitario × unidades
+// en stock = invertido del pedido × (stock ÷ cantidad pedida). Sumado, da lo
+// mismo que la columna "Stock invertido" (H) de tu pestaña Stocks — pero se
+// calcula solo de los productos, sin depender de una celda fija (H40 se mueve
+// al agregar productos nuevos).
+function getStockInvertido(stocks){
+  return stocks.reduce((s, x) => {
+    if(x.stock > 0 && x.cantidadPedido > 0 && x.invertido > 0){
+      return s + x.invertido * (x.stock / x.cantidadPedido);
+    }
+    return s;
+  }, 0);
+}
+
 function renderProyeccion(ventas, stocks, data, mk, gastos){
   const canjes = getCanjesPorProducto(gastos || []);
   const vendidosHist = getVendidosHistoricoSet(data);
@@ -1171,7 +1186,10 @@ function renderProyeccion(ventas, stocks, data, mk, gastos){
   document.getElementById('projBarFill').style.width =
     (valorVenta > 0 ? Math.min(100, invertido/valorVenta*100) : 0) + '%';
 
+  const stockInvertido = getStockInvertido(stocks);
+
   let extraHtml =
+    '<div class="r-row destacada"><span class="r-name">📦 Stock invertido (lo que tienes en mano ahora)</span><span class="r-amt">S/ ' + fmt(stockInvertido) + '</span></div>' +
     '<div class="r-row"><span class="r-name">↳ Recuperas lo invertido</span><span class="r-amt">S/ ' + fmt(invertido) + '</span></div>' +
     '<div class="r-row"><span class="r-name">↳ De eso, tu ganancia neta</span><span class="r-amt plus">S/ ' + fmt(posible) + '</span></div>' +
     '<div class="r-row"><span class="r-name">Unidades en stock</span><span class="r-amt">' + fmt0(unidades) + '</span></div>';

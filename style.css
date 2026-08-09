@@ -215,6 +215,9 @@ h1{
 .r-row .r-name{color:var(--muted);}
 .r-row .r-amt{font-family:"SFMono-Regular",Consolas,Menlo,monospace;font-weight:700;}
 .r-row.total .r-name{color:var(--bone);font-weight:700;}
+/* Stock invertido: la plata que tienes en mano ahora, resaltada. */
+.r-row.destacada .r-name{color:var(--bone);font-weight:700;}
+.r-row.destacada .r-amt{color:var(--accent);}
 .r-row.faint{opacity:.6;}
 .r-row.faint .r-name{font-size:11px;}
 .r-row.sub{padding:6px 0;}
