@@ -1862,6 +1862,221 @@ function igKpi(label, value){
   return '<div class="ig-kpi"><span class="ig-kpi-val">' + value + '</span><span class="ig-kpi-lbl">' + label + '</span></div>';
 }
 
+/* ---------- 6d. Seguimiento de pedidos (trackings + estado 17TRACK) ----------
+   Alberto registra cada paquete (número de tracking + qué productos vienen +
+   la tienda) directo desde el dashboard, igual que "Accesorios para traer".
+   El Apps Script (sync17Track) baja el último estado cada 4 h y lo escribe en
+   la pestaña "Seguimiento"; aquí solo se lee vía ?action=seguimiento. */
+let seguimiento = [];
+
+// Estados que 17TRACK devuelve (en inglés) → etiqueta corta en español + si es
+// "urgente" (ya casi llega / ya llegó, se pinta distinto y sube a la alerta).
+const SEG_ESTADOS = {
+  NotFound:           {txt:'Sin info aún',       cls:'gris'},
+  InfoReceived:       {txt:'Registrado',         cls:'gris'},
+  InTransit:          {txt:'En camino',          cls:'transito'},
+  Expired:            {txt:'Demorado',           cls:'alerta'},
+  AvailableForPickup: {txt:'Listo p/ recoger',   cls:'llega', aviso:true},
+  OutForDelivery:     {txt:'En reparto',         cls:'llega', aviso:true},
+  DeliveryFailure:    {txt:'Entrega fallida',    cls:'alerta', aviso:true},
+  Delivered:          {txt:'Entregado',          cls:'ok', aviso:true},
+  Exception:          {txt:'Problema',           cls:'alerta', aviso:true},
+};
+function segEstadoInfo(estado){
+  return SEG_ESTADOS[estado] || {txt: estado || 'Sin info aún', cls:'gris'};
+}
+// Link de rastreo público (parcelsapp acepta cualquier número directo en la URL).
+function segTrackUrl(tracking){
+  return 'https://parcelsapp.com/en/tracking/' + encodeURIComponent(tracking);
+}
+
+function loadSeguimiento(){
+  const box = document.getElementById('segList');
+  if(!cfg.WEBHOOK_URL){ if(box) box.innerHTML = needCfg('WEBHOOK_URL'); return; }
+  fetch(cfg.WEBHOOK_URL + '?action=seguimiento&_cb=' + Date.now(), {cache:'no-store'})
+    .then(r => r.json())
+    .then(resp => {
+      seguimiento = (resp && resp.seguimiento) ? resp.seguimiento : [];
+      renderSeguimiento();
+    })
+    .catch(() => { if(box) box.innerHTML = '<div class="empty">No se pudo cargar el seguimiento.</div>'; });
+}
+
+// "hace X días" desde una fecha ISO (misma idea que fmtPedidoMeta pero suelto).
+function segHace(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  if(isNaN(d)) return '';
+  const dias = Math.round((dayKey(new Date()) - dayKey(d)) / 86400000);
+  if(dias <= 0) return 'hoy';
+  if(dias === 1) return 'ayer';
+  return 'hace ' + dias + ' días';
+}
+
+function renderSeguimiento(){
+  const box = document.getElementById('segList');
+  const alertBox = document.getElementById('segAlert');
+  if(!box) return;
+
+  const activos = seguimiento.filter(s => !s.archivado);
+
+  // Alerta arriba: cuántos paquetes están por llegar o ya llegaron.
+  if(alertBox){
+    const porLlegar = activos.filter(s => { const i = segEstadoInfo(s.estado); return i.aviso && s.estado !== 'Delivered'; });
+    const llegados = activos.filter(s => s.estado === 'Delivered');
+    let a = '';
+    if(porLlegar.length) a += '<div class="seg-alert-pill llega">📦 ' + porLlegar.length + (porLlegar.length===1?' pedido por llegar':' pedidos por llegar') + '</div>';
+    if(llegados.length) a += '<div class="seg-alert-pill ok">✓ ' + llegados.length + (llegados.length===1?' pedido entregado':' pedidos entregados') + '</div>';
+    alertBox.innerHTML = a;
+  }
+
+  if(activos.length === 0){
+    box.innerHTML = '<div class="empty">Aún no tienes pedidos en seguimiento. Toca "+ Agregar tracking" y pega el número de un paquete.</div>';
+    return;
+  }
+
+  // Orden: primero los que importan (por llegar / problema), luego en camino,
+  // luego el resto; dentro de cada grupo, lo más nuevo primero.
+  const prioridad = {llega:0, alerta:1, transito:2, ok:3, gris:4};
+  const ordenados = activos.slice().sort((a,b) => {
+    const pa = prioridad[segEstadoInfo(a.estado).cls] ?? 5;
+    const pb = prioridad[segEstadoInfo(b.estado).cls] ?? 5;
+    if(pa !== pb) return pa - pb;
+    return new Date(b.creadoEn||0) - new Date(a.creadoEn||0);
+  });
+
+  box.innerHTML = ordenados.map(s => {
+    const info = segEstadoInfo(s.estado);
+    const cuando = s.actualizadoEn ? segHace(s.actualizadoEn) : '';
+    const sub = [s.plataforma, s.ubicacion || s.descripcion, cuando].filter(Boolean).join(' · ');
+    return '<div class="seg-row" data-id="' + esc(s.id) + '">' +
+        '<div class="seg-main">' +
+          '<div class="seg-top-line">' +
+            '<span class="seg-prod">' + esc(s.productos || s.tracking) + '</span>' +
+            '<span class="seg-badge ' + info.cls + '">' + esc(info.txt) + '</span>' +
+          '</div>' +
+          '<div class="seg-meta">' + (sub ? esc(sub) : '<span class="muted">Sin estado aún · se actualiza sola</span>') + '</div>' +
+          '<div class="seg-track">' + esc(s.tracking) + '</div>' +
+        '</div>' +
+        '<a class="seg-link" href="' + esc(segTrackUrl(s.tracking)) + '" target="_blank" rel="noopener" title="Abrir rastreo">↗</a>' +
+      '</div>';
+  }).join('');
+
+  box.querySelectorAll('.seg-row').forEach(el => {
+    const id = el.getAttribute('data-id');
+    el.addEventListener('click', () => {
+      const s = seguimiento.find(x => x.id === id);
+      if(s) openSeguimientoForm(s);
+    });
+    const link = el.querySelector('.seg-link');
+    if(link) link.addEventListener('click', ev => ev.stopPropagation());
+  });
+}
+
+// Formulario de alta/edición de un paquete (mismo patrón de pantalla completa
+// que "Accesorios para traer").
+function openSeguimientoForm(s){
+  openFullscreen(s ? 'Editar pedido' : 'Nuevo pedido en seguimiento', renderSeguimientoForm(s));
+  wireSeguimientoForm(s);
+}
+
+function renderSeguimientoForm(s){
+  const editando = !!s;
+  const fPed = s && s.fechaPedido ? new Date(s.fechaPedido).toISOString().slice(0,10) : '';
+  return '<div class="compra-form">' +
+    '<label class="cf-label">Número de tracking</label>' +
+    '<input type="text" class="cf-input" id="segTracking" placeholder="Ej. RR040954195XX" value="' + esc((s&&s.tracking)||'') + '">' +
+
+    '<label class="cf-label">¿Qué productos vienen en este paquete?</label>' +
+    '<input type="text" class="cf-input" id="segProductos" placeholder="Ej. Cinturon dark knight, Collar gothic cross" value="' + esc((s&&s.productos)||'') + '">' +
+
+    '<div class="cf-row2">' +
+      '<div><label class="cf-label">Tienda</label>' +
+        '<input type="text" class="cf-input" id="segPlataforma" placeholder="Alibaba / Shein / Temu" value="' + esc((s&&s.plataforma)||'') + '"></div>' +
+      '<div><label class="cf-label">Fecha de pedido (opcional)</label>' +
+        '<input type="date" class="cf-input" id="segFecha" value="' + fPed + '"></div>' +
+    '</div>' +
+
+    (editando && s.estado ? '<div class="seg-form-estado">Último estado: <b>' + esc(segEstadoInfo(s.estado).txt) + '</b>' + (s.descripcion?' · ' + esc(s.descripcion):'') + '</div>' : '') +
+    (editando ? '<a class="cf-link-track" href="' + esc(segTrackUrl(s.tracking)) + '" target="_blank" rel="noopener">↗ Abrir rastreo en el navegador</a>' : '') +
+
+    '<div class="cf-actions">' +
+      (editando ? '<button type="button" class="cf-btn cf-btn-danger" id="segEliminar">Eliminar</button>' : '') +
+      '<button type="button" class="cf-btn cf-btn-primary" id="segGuardar">Guardar</button>' +
+    '</div>' +
+    (editando ? '<button type="button" class="cf-btn cf-btn-arch" id="segArchivar">✓ Archivar (ya llegó / no seguir)</button>' : '') +
+  '</div>';
+}
+
+function wireSeguimientoForm(s){
+  const guardar = (archivar) => {
+    const tracking = document.getElementById('segTracking').value.trim();
+    if(!tracking){ alert('Pega el número de tracking.'); return; }
+    const paquete = {
+      id: s ? s.id : null,
+      tracking,
+      productos: document.getElementById('segProductos').value.trim(),
+      plataforma: document.getElementById('segPlataforma').value.trim(),
+      fechaPedido: document.getElementById('segFecha').value || '',
+      archivado: archivar ? true : (s ? s.archivado : false),
+    };
+    const btn = document.getElementById(archivar ? 'segArchivar' : 'segGuardar');
+    if(btn){ btn.disabled = true; btn.textContent = 'Guardando…'; }
+    fetch(cfg.WEBHOOK_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({type:'seguimientoGuardar', paquete})
+    }).then(r => r.json()).then(resp => {
+      if(resp.ok){ closeFullscreen(); loadSeguimiento(); }
+      else { alert('⚠ ' + (resp.error||'No se pudo guardar')); if(btn){ btn.disabled=false; btn.textContent = archivar?'✓ Archivar (ya llegó)':'Guardar'; } }
+    }).catch(() => { alert('⚠ Error de conexión.'); if(btn){ btn.disabled=false; btn.textContent = archivar?'✓ Archivar (ya llegó)':'Guardar'; } });
+  };
+  document.getElementById('segGuardar').addEventListener('click', () => guardar(false));
+  const arch = document.getElementById('segArchivar');
+  if(arch) arch.addEventListener('click', () => guardar(true));
+  const del = document.getElementById('segEliminar');
+  if(del) del.addEventListener('click', () => {
+    if(!confirm('¿Eliminar este pedido del seguimiento? (no se puede deshacer)')) return;
+    fetch(cfg.WEBHOOK_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({type:'seguimientoEliminar', id:s.id})
+    }).then(r => r.json()).then(resp => {
+      if(resp.ok){ closeFullscreen(); loadSeguimiento(); }
+      else alert('⚠ ' + (resp.error||'No se pudo eliminar'));
+    }).catch(() => alert('⚠ Error de conexión.'));
+  });
+}
+
+// Vista pantalla completa: todos los pedidos, incluidos los archivados.
+document.getElementById('segHeaderBtn').addEventListener('click', () => {
+  openFullscreen('Seguimiento de pedidos', renderSeguimientoFsBody());
+});
+function renderSeguimientoFsBody(){
+  if(seguimiento.length === 0) return '<div class="empty">Aún no hay pedidos en seguimiento.</div>';
+  const activos = seguimiento.filter(s => !s.archivado);
+  const archivados = seguimiento.filter(s => s.archivado);
+  const fila = s => {
+    const info = segEstadoInfo(s.estado);
+    const sub = [s.plataforma, s.ubicacion || s.descripcion, s.actualizadoEn?segHace(s.actualizadoEn):''].filter(Boolean).join(' · ');
+    return '<div class="seg-row" data-id="' + esc(s.id) + '">' +
+        '<div class="seg-main">' +
+          '<div class="seg-top-line"><span class="seg-prod">' + esc(s.productos||s.tracking) + '</span>' +
+            '<span class="seg-badge ' + info.cls + '">' + esc(info.txt) + '</span></div>' +
+          '<div class="seg-meta">' + (sub?esc(sub):'<span class="muted">Sin estado aún</span>') + '</div>' +
+          '<div class="seg-track">' + esc(s.tracking) + '</div>' +
+        '</div>' +
+        '<a class="seg-link" href="' + esc(segTrackUrl(s.tracking)) + '" target="_blank" rel="noopener">↗</a>' +
+      '</div>';
+  };
+  let html = '<div class="seg-fs-list">' + activos.map(fila).join('');
+  if(archivados.length){
+    html += '<div class="table-title" style="margin-top:14px;">Archivados</div>' + archivados.map(fila).join('');
+  }
+  html += '</div>';
+  return html;
+}
+
+document.getElementById('segNuevoBtn').addEventListener('click', () => openSeguimientoForm(null));
+
 let compras = [];
 
 function loadCompras(){
@@ -2560,3 +2775,4 @@ applyTheme(savedTheme);
 loadAll();
 loadCompras();
 loadInstagram();
+loadSeguimiento();

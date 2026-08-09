@@ -795,6 +795,52 @@ h1{
 }
 .compra-quick-ok:active{background:var(--ok);border-color:var(--ok);color:#0b0b0b;}
 
+/* ---------- Seguimiento de pedidos (trackings + estado 17TRACK) ---------- */
+.seg-alert{display:flex;flex-wrap:wrap;gap:8px;}
+.seg-alert:not(:empty){margin-bottom:10px;}
+.seg-alert-pill{
+  font-size:12px;font-weight:800;padding:6px 11px;border-radius:9px;
+}
+.seg-alert-pill.llega{background:var(--accent-dim);color:var(--accent);}
+.seg-alert-pill.ok{background:var(--chip);color:var(--ok);border:1px solid var(--ok);}
+.seg-list{margin-top:2px;}
+.seg-row{
+  display:flex;align-items:center;gap:10px;padding:11px 2px;
+  border-bottom:1px dashed var(--line);cursor:pointer;
+}
+.seg-row:last-child{border-bottom:none;}
+.seg-row:active{background:var(--chip);}
+.seg-main{flex:1;min-width:0;}
+.seg-top-line{display:flex;align-items:center;gap:8px;}
+.seg-prod{color:var(--bone);font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.seg-badge{
+  font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;
+  padding:2px 7px;border-radius:6px;flex-shrink:0;white-space:nowrap;
+}
+.seg-badge.gris{background:var(--chip);color:var(--muted);border:1px solid var(--line);}
+.seg-badge.transito{background:var(--accent-dim);color:var(--accent);}
+.seg-badge.llega{background:var(--accent);color:#fff;}
+.seg-badge.ok{background:transparent;color:var(--ok);border:1px solid var(--ok);}
+.seg-badge.alerta{background:transparent;color:var(--bad);border:1px solid var(--bad);}
+.seg-meta{font-size:11px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.seg-track{font-size:10px;color:var(--muted);opacity:.7;margin-top:2px;font-family:ui-monospace,monospace;}
+.seg-link{
+  width:34px;height:34px;border-radius:9px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;text-decoration:none;
+  background:var(--chip);border:1px solid var(--line);color:var(--accent);
+  font-size:16px;font-weight:700;
+}
+.seg-link:active{background:var(--accent);color:#fff;}
+.seg-form-estado{font-size:12px;color:var(--muted);margin-top:14px;line-height:1.5;}
+.seg-form-estado b{color:var(--bone);}
+.cf-link-track{display:inline-block;margin-top:8px;font-size:12px;color:var(--accent);font-weight:700;text-decoration:none;}
+.cf-btn-arch{
+  width:100%;margin-top:10px;border:1px solid var(--line);border-radius:11px;
+  padding:12px;font-size:13px;font-weight:700;cursor:pointer;
+  background:var(--chip);color:var(--ok);
+}
+.seg-fs-list{max-width:560px;}
+
 /* Formulario de bloque de compra (dentro de la vista de pantalla completa) */
 .compra-form{display:flex;flex-direction:column;gap:6px;max-width:520px;}
 .cf-label{
