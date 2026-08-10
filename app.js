@@ -358,19 +358,37 @@ const COMBO_ALIAS = {
   'anillos duki': ['Anillo demon wings duki', 'Anillo angel wings duki'],
 };
 
+// Un mismo producto, anotado en Ventas con nombres distintos al de Stocks (le
+// falta el prefijo "Collar", o el orden de las palabras está invertido). Sin
+// esto, esas ventas nunca se le asignan al producto real: no cuentan para
+// "más vendidos", velocidad de stock ("días para agotar") ni el sello
+// "Nuevo" — el producto se veía como si nunca se hubiera vendido, aunque sí.
+// Detectado 2026-08-10: "Collar silver/gold rosary chain" salían "sin ventas"
+// en Inventario porque casi todas sus ventas están anotadas sin "Collar".
+const ALIAS_PRODUCTO = {
+  'silver rosary chain': 'Collar silver rosary chain',
+  'rosary silver': 'Collar silver rosary chain',
+  'silver rosary': 'Collar silver rosary chain',
+  'gold rosary chain': 'Collar gold rosary chain',
+  'rosary gold': 'Collar gold rosary chain',
+  'gold rosary': 'Collar gold rosary chain',
+};
+
 // Separa un combo ("collar A + collar B") en sus piezas, expandiendo cualquier
 // alias corto (ver COMBO_ALIAS) pieza por pieza — así funciona tanto si el
 // alias va solo ("Anillos Duki") como mezclado con otros productos
-// ("Anillos Duki + Pant Chain Chrome Hearts + Cinturon Dark Knight"). Si
-// vendes/canjeas una pieza suelta, anótala con el nombre exacto tal cual está
-// en Stocks y no pasará por aquí.
+// ("Anillos Duki + Pant Chain Chrome Hearts + Cinturon Dark Knight"). Si una
+// pieza suelta coincide con ALIAS_PRODUCTO (mismo producto, nombre distinto),
+// se renombra al nombre exacto de Stocks. Si vendes/canjeas algo con el
+// nombre exacto tal cual está en Stocks, ninguno de los dos aplica y sigue
+// igual.
 function splitCombo(nombre){
   const piezas = String(nombre||'').split('+').map(s => s.trim()).filter(Boolean);
   const out = [];
   piezas.forEach(p => {
-    const alias = COMBO_ALIAS[normName(p)];
-    if(alias) out.push(...alias);
-    else out.push(p);
+    const combo = COMBO_ALIAS[normName(p)];
+    if(combo){ out.push(...combo); return; }
+    out.push(ALIAS_PRODUCTO[normName(p)] || p);
   });
   return out;
 }
