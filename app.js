@@ -747,6 +747,7 @@ function renderMetaPerso(data){
   const fCreacion = parseDateSmart(m.fechaCreacion) || hoy;
   const diasRestantes = Math.max(0, Math.round((fLimite - hoy) / 86400000) + 1);
   const vencida = fLimite < hoy;
+  const excluidos = m.excluidos || [];
 
   const detVentas = data.ventasDetalle
     ? getVentasDetalle(data).filter(v => v.date >= fCreacion && v.date <= hoy)
@@ -755,10 +756,15 @@ function renderMetaPerso(data){
 
   // Gastos SIN excluir "Inversión": para saber cuánta plata tienes en mano de
   // verdad, comprar mercadería también cuenta como salida de efectivo ahora.
-  const gastosAcum = body(data.gastos)
-    .map(r => ({date: parseDateSmart(r[1]), monto: parseMoney(r[3])}))
-    .filter(g => g.date && g.monto > 0 && g.date >= fCreacion && g.date <= hoy)
-    .reduce((s,g) => s + g.monto, 0);
+  // Se listan uno por uno (no solo el total) porque tu app de gastos guarda
+  // el DÍA pero no la hora: si creaste la meta el mismo día que ya habías
+  // gastado algo, ese gasto cae dentro de la ventana igual — acá lo puedes
+  // destildar a mano para que no cuente.
+  const gastosPeriodo = body(data.gastos)
+    .map(r => ({id: String(r[0]||''), date: parseDateSmart(r[1]), categoria: (r[2]||'').trim(), monto: parseMoney(r[3]), nota: (r[4]||'').trim()}))
+    .filter(g => g.id && g.date && g.monto > 0 && g.date >= fCreacion && g.date <= hoy)
+    .sort((a,b) => b.date - a.date);
+  const gastosAcum = gastosPeriodo.filter(g => excluidos.indexOf(g.id) === -1).reduce((s,g) => s + g.monto, 0);
 
   const efectivoAcum = ventasAcum - gastosAcum;
   const esEfectivo = metaPersoMetrica === 'efectivo';
@@ -792,9 +798,41 @@ function renderMetaPerso(data){
   if(esEfectivo){
     html += '<div class="metames-note">Desde que creaste esta meta (' + fCreacionTxt + '): vendiste S/ ' + fmt0(ventasAcum) +
       ' y gastaste S/ ' + fmt0(gastosAcum) + ' (todo lo registrado en tu app de gastos, incluida mercadería nueva) → efectivo S/ ' + fmt0(efectivoAcum) + '.</div>';
+
+    if(gastosPeriodo.length > 0){
+      html += '<div class="mpg-head">Gastos de este período — destilda los que hiciste ANTES de crear la meta:</div>' +
+        '<div class="mpg-list" id="metaPersoGastosList">' +
+          gastosPeriodo.map(g => {
+            const checked = excluidos.indexOf(g.id) === -1;
+            return '<label class="mpg-row' + (checked?'':' excluido') + '">' +
+              '<input type="checkbox" data-id="' + esc(g.id) + '" ' + (checked?'checked':'') + '>' +
+              '<span class="mpg-info">' +
+                '<span class="mpg-cat">' + esc(g.categoria) + (g.nota?' · '+esc(g.nota):'') + '</span>' +
+                '<span class="mpg-fecha">' + fmtDateShort(g.date) + '</span>' +
+              '</span>' +
+              '<span class="mpg-monto mono">S/ ' + fmt(g.monto) + '</span>' +
+            '</label>';
+          }).join('') +
+        '</div>';
+    }
   }
 
   box.innerHTML = html;
+
+  const gastosList = document.getElementById('metaPersoGastosList');
+  if(gastosList){
+    gastosList.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const id = cb.getAttribute('data-id');
+        const mNow = leerMetaPerso();
+        if(!mNow) return;
+        let excl = mNow.excluidos || [];
+        excl = cb.checked ? excl.filter(x => x !== id) : (excl.indexOf(id) === -1 ? excl.concat([id]) : excl);
+        guardarMetaPerso(Object.assign({}, mNow, {excluidos: excl}));
+        if(LAST) renderMetaPerso(LAST.data);
+      });
+    });
+  }
 }
 
 function renderMetaPersoForm(m){
@@ -830,6 +868,27 @@ function openMetaPersoForm(){
     if(LAST) renderMetaPerso(LAST.data);
   });
 }
+// Meta del mes / Personalizada comparten la misma tarjeta (para no alargar el
+// dashboard): este toggle solo muestra/oculta el panel, no vuelve a calcular
+// nada (ambos ya se calculan al cargar los datos).
+let metaTipo = 'mes';
+try{ metaTipo = localStorage.getItem('timeless_metatipo') || 'mes'; }catch(e){}
+if(['mes','perso'].indexOf(metaTipo) === -1) metaTipo = 'mes';
+function aplicarMetaTipo(){
+  document.querySelectorAll('#metaTipoToggle button').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-tipo') === metaTipo));
+  document.getElementById('metaMesPanel').hidden = metaTipo !== 'mes';
+  document.getElementById('metaPersoPanel').hidden = metaTipo !== 'perso';
+}
+aplicarMetaTipo();
+document.getElementById('metaTipoToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-tipo]');
+  if(!btn) return;
+  metaTipo = btn.getAttribute('data-tipo');
+  try{ localStorage.setItem('timeless_metatipo', metaTipo); }catch(err){}
+  aplicarMetaTipo();
+});
+
 document.getElementById('metaPersoEditarBtn').addEventListener('click', openMetaPersoForm);
 document.getElementById('metaPersoMetricaToggle').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-metrica]');
@@ -1040,7 +1099,122 @@ function renderAds(data, mk){
     '<td class="mono">S/ ' + fmt(totNeto) + '</td>' +
     '<td class="mono">' + totRatio.toFixed(2) + 'x</td></tr>';
   table.innerHTML = head + rows + foot;
+  renderAdsPorAnuncio(k);
 }
+
+// ---------- Meta Ads "Por anuncio": gasto + costo por conversación ----------
+// Se cargan aparte (?action=anunciosMeta, en vivo desde la pestaña "AnunciosMeta"
+// que llena syncMetaAdsAutomatico() cada 4h), igual que Compras/Seguimiento —
+// no hace falta publicar esa pestaña a la web.
+let anunciosMeta = [];
+function loadAnunciosMeta(){
+  if(!cfg.WEBHOOK_URL) return;
+  fetch(cfg.WEBHOOK_URL + '?action=anunciosMeta&_cb=' + Date.now(), {cache:'no-store'})
+    .then(r => r.json())
+    .then(resp => {
+      anunciosMeta = ((resp && resp.anunciosMeta) ? resp.anunciosMeta : []).map(a => ({
+        date: parseDateSmart(a.fecha), anuncio: a.anuncio, campana: a.campana,
+        gasto: Number(a.gasto)||0, conversaciones: Number(a.conversaciones)||0,
+      })).filter(a => a.date);
+      renderAdsPorAnuncio(selectedMonthKey || monthKey(new Date()));
+    })
+    .catch(() => {});
+}
+
+// "Normal" para vos: promedio de costo/conversación de tus últimos 30 días con
+// datos (todas las campañas juntas). Sin esto, un número suelto como "S/ 3.50
+// por conversación" no dice si está bien o mal — cada negocio/rubro es distinto,
+// así que se compara contra TU propio historial, no contra un umbral inventado.
+function costoConversacionBaseline(){
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const desde = new Date(hoy); desde.setDate(desde.getDate() - 30);
+  let gasto = 0, conv = 0;
+  anunciosMeta.forEach(a => { if(a.date >= desde && a.date <= hoy){ gasto += a.gasto; conv += a.conversaciones; } });
+  return conv > 0 ? gasto / conv : null;
+}
+
+// Semáforo: verde si estás 15%+ mejor que tu propio promedio, rojo si estás
+// 15%+ peor, amarillo en el medio. Gris si no hay suficiente historial o el
+// anuncio no tuvo conversaciones (no se puede calcular su costo).
+function semaforoCosto(costo, baseline){
+  if(costo == null || baseline == null) return {cls:'gris', txt:'—'};
+  if(costo <= baseline * 0.85) return {cls:'verde', txt:'Bien'};
+  if(costo <= baseline * 1.15) return {cls:'amarillo', txt:'Normal'};
+  return {cls:'rojo', txt:'Alto'};
+}
+
+function renderAdsPorAnuncio(k){
+  const box = document.getElementById('adsPorAnuncioBody');
+  if(!box) return;
+  const mes = anunciosMeta.filter(a => monthKey(a.date) === k);
+  if(mes.length === 0){
+    box.innerHTML = '<div class="empty">Sin datos por anuncio en ' + monthLabel(k) + ' todavía (o falta configurar el sync — ver nota abajo).</div>';
+    return;
+  }
+  const porAnuncio = {};
+  mes.forEach(a => {
+    const e = porAnuncio[a.anuncio] || (porAnuncio[a.anuncio] = {nombre:a.anuncio, campana:a.campana, gasto:0, conversaciones:0});
+    e.gasto += a.gasto; e.conversaciones += a.conversaciones;
+  });
+  const filas = Object.values(porAnuncio).sort((a,b) => b.gasto - a.gasto);
+  const baseline = costoConversacionBaseline();
+
+  const totGasto = filas.reduce((s,f) => s + f.gasto, 0);
+  const totConv = filas.reduce((s,f) => s + f.conversaciones, 0);
+  const totCosto = totConv > 0 ? totGasto / totConv : null;
+
+  const filaHtml = (f, esTotal) => {
+    const costo = f.conversaciones > 0 ? f.gasto / f.conversaciones : null;
+    const sem = semaforoCosto(costo, baseline);
+    return '<div class="ads-pa-row' + (esTotal?' total':'') + '">' +
+        '<div class="ads-pa-info">' +
+          '<span class="ads-pa-nombre">' + esc(f.nombre) + '</span>' +
+          (esTotal || !f.campana ? '' : '<span class="ads-pa-camp">' + esc(f.campana) + '</span>') +
+        '</div>' +
+        '<span class="ads-pa-dot ' + sem.cls + '" title="' + sem.txt + '"></span>' +
+        '<span class="mono ads-pa-gasto">S/ ' + fmt(f.gasto) + '</span>' +
+        '<span class="mono ads-pa-conv">' + fmt0(f.conversaciones) + ' conv.</span>' +
+        '<span class="mono ads-pa-costo">' + (costo!=null ? 'S/ '+fmt(costo) : '—') + '</span>' +
+      '</div>';
+  };
+
+  let html = '<div class="ads-pa-head">' +
+      '<span></span><span></span><span>Gasto</span><span>Convers.</span><span>Costo/conv.</span>' +
+    '</div>' +
+    filas.map(f => filaHtml(f, false)).join('');
+  if(filas.length > 1){
+    html += filaHtml({nombre:'Total (' + filas.length + ' anuncios juntos)', gasto:totGasto, conversaciones:totConv}, true);
+  }
+  if(baseline != null){
+    html += '<div class="ads-daily-note">🟢 Bien / 🟡 Normal / 🔴 Alto — comparado con tu propio promedio de los últimos 30 días (S/ ' + fmt(baseline) + ' por conversación). ⚪ = sin conversaciones o sin historial suficiente.</div>';
+  } else {
+    html += '<div class="ads-daily-note">Necesitas más historial (30 días con conversaciones) para que el semáforo compare contra tu propio promedio.</div>';
+  }
+  box.innerHTML = html;
+}
+
+// Toggle "Gasto diario" (tabla de siempre) / "Por anuncio" (gasto + costo por
+// conversación + semáforo).
+let adsVista = 'dia';
+try{ adsVista = localStorage.getItem('timeless_ads_vista') || 'dia'; }catch(e){}
+if(['dia','anuncio'].indexOf(adsVista) === -1) adsVista = 'dia';
+function aplicarAdsVista(){
+  document.querySelectorAll('#adsVistaToggle button').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-v') === adsVista));
+  const esDia = adsVista === 'dia';
+  document.querySelector('#adsDailyCard .ads-daily-wrap').hidden = !esDia;
+  document.getElementById('adsPorAnuncioBody').hidden = esDia;
+  document.getElementById('adsVistaTitle').textContent = esDia ? 'Por día · gasto real vs ventas' : 'Por anuncio · gasto y costo por conversación';
+  document.getElementById('adsDailyNote').hidden = !esDia;
+}
+aplicarAdsVista();
+document.getElementById('adsVistaToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-v]');
+  if(!btn) return;
+  adsVista = btn.getAttribute('data-v');
+  try{ localStorage.setItem('timeless_ads_vista', adsVista); }catch(err){}
+  aplicarAdsVista();
+});
 
 /* ---------- Meta Ads: vista de pantalla completa (15 días / por campaña / semanal) ---------- */
 function getWeekStart(d){
@@ -3031,3 +3205,4 @@ loadAll();
 loadCompras();
 loadInstagram();
 loadSeguimiento();
+loadAnunciosMeta();

@@ -59,40 +59,47 @@
     <div class="receipt" id="heroReceipt"></div>
   </section>
 
-  <!-- 1b. META DEL MES (meta de ventas configurable, para motivarte) -->
+  <!-- 1b. META (del mes / personalizada) — un mismo toggle elige cuál se ve, para no alargar el dashboard -->
   <section class="card span2" id="metaMesCard">
     <div class="hero-top">
-      <div class="section-label">Meta del mes</div>
-      <div class="util-toggle" id="metaMesToggle">
-        <button type="button" data-modo="dia">Por día</button>
-        <button type="button" data-modo="bloque">Por 10 días</button>
-        <button type="button" data-modo="mes">Por mes</button>
+      <div class="section-label">Meta</div>
+      <div class="util-toggle" id="metaTipoToggle">
+        <button type="button" data-tipo="mes">Del mes</button>
+        <button type="button" data-tipo="perso">Personalizada</button>
       </div>
     </div>
-    <div class="metames-config">
-      <div class="metames-config-row">
-        <label class="cf-label" for="metaMesInput">Tu meta de ventas para <span id="metaMesMonthLabel">este mes</span> (S/)</label>
-        <div class="util-toggle" id="metaMesMetricaToggle">
-          <button type="button" data-metrica="ventas">Ventas</button>
-          <button type="button" data-metrica="ganancia">Ganancia líquida</button>
+
+    <div id="metaMesPanel">
+      <div class="hero-top">
+        <div class="util-toggle" id="metaMesToggle">
+          <button type="button" data-modo="dia">Por día</button>
+          <button type="button" data-modo="bloque">Por 10 días</button>
+          <button type="button" data-modo="mes">Por mes</button>
         </div>
       </div>
-      <input type="text" class="cf-input" id="metaMesInput" inputmode="decimal" placeholder="Ej. 5000">
+      <div class="metames-config">
+        <div class="metames-config-row">
+          <label class="cf-label" for="metaMesInput">Tu meta de ventas para <span id="metaMesMonthLabel">este mes</span> (S/)</label>
+          <div class="util-toggle" id="metaMesMetricaToggle">
+            <button type="button" data-metrica="ventas">Ventas</button>
+            <button type="button" data-metrica="ganancia">Ganancia líquida</button>
+          </div>
+        </div>
+        <input type="text" class="cf-input" id="metaMesInput" inputmode="decimal" placeholder="Ej. 5000">
+      </div>
+      <div class="metames-body" id="metaMesBody"></div>
     </div>
-    <div class="metames-body" id="metaMesBody"></div>
-  </section>
 
-  <!-- 1c. META PERSONALIZADA (monto + fecha límite libres, no atada al mes calendario) -->
-  <section class="card span2" id="metaPersoCard">
-    <div class="hero-top">
-      <div class="section-label">Meta personalizada</div>
-      <button type="button" class="detail-btn" id="metaPersoEditarBtn">✎ Editar</button>
+    <div id="metaPersoPanel" hidden>
+      <div class="hero-top">
+        <button type="button" class="detail-btn" id="metaPersoEditarBtn">✎ Editar meta</button>
+        <div class="util-toggle" id="metaPersoMetricaToggle">
+          <button type="button" data-metrica="ventas">Ventas</button>
+          <button type="button" data-metrica="efectivo">Efectivo</button>
+        </div>
+      </div>
+      <div class="metames-body" id="metaPersoBody"></div>
     </div>
-    <div class="util-toggle" id="metaPersoMetricaToggle">
-      <button type="button" data-metrica="ventas">Ventas</button>
-      <button type="button" data-metrica="efectivo">Efectivo (ventas − gastos)</button>
-    </div>
-    <div class="metames-body" id="metaPersoBody"></div>
   </section>
 
   <!-- 2. META ADS · campañas + rentabilidad -->
@@ -102,11 +109,18 @@
       <button type="button" class="detail-btn" id="adsDetailBtn">Ver detalle día a día ▸</button>
     </div>
     <div class="campanas-list" id="campanasList"></div>
-    <div class="table-title">Por día · gasto real vs ventas</div>
+    <div class="hero-top">
+      <div class="table-title" id="adsVistaTitle">Por día · gasto real vs ventas</div>
+      <div class="util-toggle" id="adsVistaToggle">
+        <button type="button" data-v="dia">Gasto diario</button>
+        <button type="button" data-v="anuncio">Por anuncio</button>
+      </div>
+    </div>
     <div class="ads-daily-wrap">
       <table class="ads-daily" id="adsDailyTable"></table>
     </div>
-    <div class="ads-daily-note">Gasto por campaña y día tomado de Meta Ads (toca una campaña para ver su detalle). Ventas = todo lo vendido ese día (no todo viene de ads).</div>
+    <div class="ads-porads-wrap" id="adsPorAnuncioBody" hidden></div>
+    <div class="ads-daily-note" id="adsDailyNote">Gasto por campaña y día tomado de Meta Ads (toca una campaña para ver su detalle). Ventas = todo lo vendido ese día (no todo viene de ads).</div>
   </section>
 
   <!-- 2b. ROAS REAL (ingresos vs gasto real de ads con IGV) -->

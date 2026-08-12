@@ -9,6 +9,7 @@
   --chip:#111111;
   --ok:#4ade80;
   --bad:#fb7185;
+  --warn:#facc15;
 }
 *{box-sizing:border-box;}
 html{
@@ -486,6 +487,19 @@ h1{
 .metames-note .ok{color:var(--ok);font-weight:700;}
 .metames-note .bad{color:var(--bad);font-weight:700;}
 
+/* Meta personalizada · Efectivo: lista de gastos del período con checkbox para
+   destildar los que se hicieron el mismo día pero antes de crear la meta. */
+.mpg-head{font-size:11.5px;color:var(--muted);margin-top:12px;margin-bottom:4px;}
+.mpg-list{display:flex;flex-direction:column;gap:0;max-height:220px;overflow-y:auto;border-top:1px dashed var(--line);}
+.mpg-row{display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px dashed var(--line);cursor:pointer;}
+.mpg-row input[type=checkbox]{flex-shrink:0;width:16px;height:16px;accent-color:var(--accent);}
+.mpg-row.excluido{opacity:.45;}
+.mpg-row.excluido .mpg-cat{text-decoration:line-through;}
+.mpg-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;}
+.mpg-cat{font-size:12px;color:var(--bone);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mpg-fecha{font-size:10px;color:var(--muted);}
+.mpg-monto{font-size:12px;font-weight:700;flex-shrink:0;}
+
 /* Mejor día de la semana */
 .dsem-lead{font-size:13px;font-weight:800;color:var(--accent);flex-shrink:0;}
 .dsem-bars{display:flex;gap:8px;padding:18px 2px 0;}
@@ -650,6 +664,27 @@ h1{
   font-size:10px;
   color:var(--muted);
 }
+
+/* Meta Ads "Por anuncio": gasto + costo por conversación + semáforo. */
+.ads-pa-head{
+  display:grid;grid-template-columns:1fr 10px 70px 62px 62px;gap:8px;align-items:center;
+  padding:4px 2px;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;
+}
+.ads-pa-head span:nth-child(3),.ads-pa-head span:nth-child(4),.ads-pa-head span:nth-child(5){text-align:right;}
+.ads-pa-row{
+  display:grid;grid-template-columns:1fr 10px 70px 62px 62px;gap:8px;align-items:center;
+  padding:8px 2px;border-bottom:1px dashed var(--line);font-size:12px;
+}
+.ads-pa-row.total{border-top:1px solid var(--line);border-bottom:none;font-weight:700;margin-top:2px;}
+.ads-pa-info{min-width:0;display:flex;flex-direction:column;gap:1px;}
+.ads-pa-nombre{color:var(--bone);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ads-pa-camp{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ads-pa-gasto,.ads-pa-conv,.ads-pa-costo{text-align:right;}
+.ads-pa-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+.ads-pa-dot.verde{background:var(--ok);}
+.ads-pa-dot.amarillo{background:var(--warn);}
+.ads-pa-dot.rojo{background:var(--bad);}
+.ads-pa-dot.gris{background:var(--line);}
 
 /* Botón "ver detalle" (abre pantalla completa) */
 .detail-btn{
