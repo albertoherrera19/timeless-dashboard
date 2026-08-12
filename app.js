@@ -450,6 +450,7 @@ function renderAll(data, missing){
   renderRecent(data);
   renderVentasRecientes(data);
   renderMetaMes(data);
+  renderMetaPerso(data);
   renderDiaSemana(data);
   renderAds(data, selectedMonthKey);
   renderRoas(ventas, data, selectedMonthKey);
@@ -709,6 +710,134 @@ function renderMetaMes(data){
 
   bodyEl.innerHTML = html;
 }
+
+// 6a3. META PERSONALIZADA — monto + fecha límite libres (no atada al mes
+// calendario ni a bloques de 10 días), ej. "S/ 970 para el 20 de agosto".
+// A diferencia de "Meta del mes", el modo "Efectivo" no es la ganancia neta
+// estimada por margen: es Ventas − Gastos tal cual, contando TODOS los gastos
+// registrados (incluida "Inversión", que Utilidad excluye porque ya está en
+// el costo — pero acá es plata real que sale de tu bolsillo). Ventas y gastos
+// se cuentan solo desde que guardaste la meta (no desde antes).
+function leerMetaPerso(){
+  try{ const raw = localStorage.getItem('timeless_metaperso'); return raw ? JSON.parse(raw) : null; }
+  catch(e){ return null; }
+}
+function guardarMetaPerso(m){ try{ localStorage.setItem('timeless_metaperso', JSON.stringify(m)); }catch(e){} }
+function borrarMetaPerso(){ try{ localStorage.removeItem('timeless_metaperso'); }catch(e){} }
+function todayISO(){ const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+
+let metaPersoMetrica = 'ventas';
+try{ metaPersoMetrica = localStorage.getItem('timeless_metaperso_metrica') || 'ventas'; }catch(e){}
+if(['ventas','efectivo'].indexOf(metaPersoMetrica) === -1) metaPersoMetrica = 'ventas';
+
+function renderMetaPerso(data){
+  const box = document.getElementById('metaPersoBody');
+  if(!box) return;
+  document.querySelectorAll('#metaPersoMetricaToggle button').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-metrica') === metaPersoMetrica));
+
+  const m = leerMetaPerso();
+  if(!m || !m.monto || !m.fechaLimite){
+    box.innerHTML = '<div class="metames-empty">Aún no tienes una meta personalizada. Toca "✎ Editar" para crear una (ej. "S/ 970 para el 20 de agosto").</div>';
+    return;
+  }
+
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const fLimite = parseDateSmart(m.fechaLimite);
+  const fCreacion = parseDateSmart(m.fechaCreacion) || hoy;
+  const diasRestantes = Math.max(0, Math.round((fLimite - hoy) / 86400000) + 1);
+  const vencida = fLimite < hoy;
+
+  const detVentas = data.ventasDetalle
+    ? getVentasDetalle(data).filter(v => v.date >= fCreacion && v.date <= hoy)
+    : [];
+  const ventasAcum = detVentas.reduce((s,v) => s + v.venta, 0);
+
+  // Gastos SIN excluir "Inversión": para saber cuánta plata tienes en mano de
+  // verdad, comprar mercadería también cuenta como salida de efectivo ahora.
+  const gastosAcum = body(data.gastos)
+    .map(r => ({date: parseDateSmart(r[1]), monto: parseMoney(r[3])}))
+    .filter(g => g.date && g.monto > 0 && g.date >= fCreacion && g.date <= hoy)
+    .reduce((s,g) => s + g.monto, 0);
+
+  const efectivoAcum = ventasAcum - gastosAcum;
+  const esEfectivo = metaPersoMetrica === 'efectivo';
+  const acumulado = esEfectivo ? efectivoAcum : ventasAcum;
+  const falta = Math.max(0, m.monto - acumulado);
+  const pct = Math.min(100, m.monto > 0 ? acumulado / m.monto * 100 : 0);
+  const cumplida = acumulado >= m.monto;
+  const porDia = diasRestantes > 0 ? falta / diasRestantes : falta;
+  // Quita el punto final que el navegador agrega a "ago." (mes corto) —
+  // si no, frases como "hasta el 18-ago." quedan con doble punto al final.
+  const fLimiteTxt = fLimite.toLocaleDateString('es-PE', {day:'2-digit', month:'short'}).replace(/\.$/, '');
+  const fCreacionTxt = fCreacion.toLocaleDateString('es-PE', {day:'2-digit', month:'short'}).replace(/\.$/, '');
+
+  let html =
+    '<div class="metames-big">' +
+      '<span class="mono">S/ ' + fmt0(acumulado) + '</span>' +
+      '<span class="metames-goal">de S/ ' + fmt0(m.monto) + '</span>' +
+    '</div>' +
+    '<div class="proj-bar"><div class="proj-bar-fill" style="width:' + pct + '%"></div></div>';
+
+  if(cumplida){
+    html += '<div class="metames-note"><span class="ok">✓ Meta cumplida' +
+      (vencida ? '' : (' — te quedan ' + diasRestantes + ' día(s) hasta el ' + fLimiteTxt)) + '.</span></div>';
+  } else if(vencida){
+    html += '<div class="metames-note"><span class="bad">Venció el ' + fLimiteTxt + '.</span> Te faltaron S/ ' + fmt0(falta) + '.</div>';
+  } else {
+    html += '<div class="metames-note">Te faltan <span class="bad">S/ ' + fmt0(falta) + '</span> para el ' + fLimiteTxt +
+      (diasRestantes > 1 ? ' — unos S/ ' + fmt0(porDia) + ' por día (' + diasRestantes + ' días restantes).' : ' — hoy es el último día.') + '</div>';
+  }
+
+  if(esEfectivo){
+    html += '<div class="metames-note">Desde que creaste esta meta (' + fCreacionTxt + '): vendiste S/ ' + fmt0(ventasAcum) +
+      ' y gastaste S/ ' + fmt0(gastosAcum) + ' (todo lo registrado en tu app de gastos, incluida mercadería nueva) → efectivo S/ ' + fmt0(efectivoAcum) + '.</div>';
+  }
+
+  box.innerHTML = html;
+}
+
+function renderMetaPersoForm(m){
+  return '<div class="compra-form">' +
+    '<label class="cf-label">Monto objetivo (S/)</label>' +
+    '<input type="text" inputmode="decimal" class="cf-input" id="mpMonto" placeholder="Ej. 970" value="' + esc((m&&m.monto)||'') + '">' +
+    '<label class="cf-label">Fecha límite</label>' +
+    '<input type="date" class="cf-input" id="mpFecha" value="' + esc((m&&m.fechaLimite)||'') + '">' +
+    '<div class="cf-estado-hint">Las ventas y gastos se cuentan desde que guardes esta meta (hoy), no desde antes.</div>' +
+    '<div class="cf-actions">' +
+      (m ? '<button type="button" class="cf-btn cf-btn-danger" id="mpBorrar">Borrar meta</button>' : '') +
+      '<button type="button" class="cf-btn cf-btn-primary" id="mpGuardar">Guardar</button>' +
+    '</div>' +
+  '</div>';
+}
+
+function openMetaPersoForm(){
+  const m = leerMetaPerso();
+  openFullscreen(m ? 'Editar meta personalizada' : 'Nueva meta personalizada', renderMetaPersoForm(m));
+  document.getElementById('mpGuardar').addEventListener('click', () => {
+    const monto = Number(document.getElementById('mpMonto').value) || 0;
+    const fechaLimite = document.getElementById('mpFecha').value;
+    if(monto <= 0 || !fechaLimite){ alert('Pon un monto y una fecha límite.'); return; }
+    guardarMetaPerso({ monto, fechaLimite, fechaCreacion: todayISO() });
+    closeFullscreen();
+    if(LAST) renderMetaPerso(LAST.data);
+  });
+  const btnBorrar = document.getElementById('mpBorrar');
+  if(btnBorrar) btnBorrar.addEventListener('click', () => {
+    if(!confirm('¿Borrar esta meta personalizada?')) return;
+    borrarMetaPerso();
+    closeFullscreen();
+    if(LAST) renderMetaPerso(LAST.data);
+  });
+}
+document.getElementById('metaPersoEditarBtn').addEventListener('click', openMetaPersoForm);
+document.getElementById('metaPersoMetricaToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-metrica]');
+  if(!btn) return;
+  metaPersoMetrica = btn.getAttribute('data-metrica');
+  try{ localStorage.setItem('timeless_metaperso_metrica', metaPersoMetrica); }catch(err){}
+  if(LAST) renderMetaPerso(LAST.data);
+});
 
 // 6b. MEJOR DÍA DE LA SEMANA — agrupa las ventas de los últimos 90 días por día
 // de la semana (nº de ventas + ingresos), para ver cuándo hay más movimiento.
@@ -1921,11 +2050,23 @@ const SEG_ESTADOS = {
 function segEstadoInfo(estado){
   return SEG_ESTADOS[estado] || {txt: estado || 'Sin info aún', cls:'gris'};
 }
-// Link de rastreo: si Alberto pegó uno propio para ese paquete se usa ese; si
-// no, se arma solo el de parcelsapp (acepta cualquier número directo en la URL).
-function segTrackUrl(tracking, link){
+// Página de rastreo a abrir con el botón ↗. Parcelsapp y 17TRACK arman la URL
+// solos con el número (funcionan de un toque); MailAmericas no tiene una URL
+// pública que acepte el número directo (su sitio pide iniciar sesión), así
+// que solo se abre su web para que Alberto pegue el número él mismo si ya
+// tiene sesión iniciada ahí. "Personalizado" usa el link que Alberto pegó.
+const SEG_PROVEEDORES = {
+  parcelsapp:  { label: 'Parcelsapp',   url: t => 'https://parcelsapp.com/en/tracking/' + encodeURIComponent(t) },
+  '17track':   { label: '17TRACK',      url: t => 'https://t.17track.net/en#nums=' + encodeURIComponent(t) },
+  mailamericas:{ label: 'MailAmericas', url: () => 'https://tracking.mailamericas.com/' },
+};
+function segTrackUrl(tracking, link, proveedor){
+  if(proveedor === 'personalizado' && link && /^https?:\/\//i.test(link.trim())) return link.trim();
+  if(proveedor && SEG_PROVEEDORES[proveedor]) return SEG_PROVEEDORES[proveedor].url(tracking);
+  // Sin proveedor guardado (pedidos creados antes de este cambio): igual que
+  // antes, usa el link propio si hay, si no cae a parcelsapp.
   if(link && /^https?:\/\//i.test(link.trim())) return link.trim();
-  return 'https://parcelsapp.com/en/tracking/' + encodeURIComponent(tracking);
+  return SEG_PROVEEDORES.parcelsapp.url(tracking);
 }
 
 function loadSeguimiento(){
@@ -2004,7 +2145,7 @@ function renderSeguimiento(){
         '</div>' +
         '<div class="seg-btns">' +
           '<button type="button" class="seg-copy" data-track="' + esc(s.tracking) + '" title="Copiar número">⧉</button>' +
-          '<a class="seg-link" href="' + esc(segTrackUrl(s.tracking, s.link)) + '" target="_blank" rel="noopener" title="Abrir rastreo">↗</a>' +
+          '<a class="seg-link" href="' + esc(segTrackUrl(s.tracking, s.link, s.proveedor)) + '" target="_blank" rel="noopener" title="Abrir rastreo">↗</a>' +
         '</div>' +
       '</div>';
   }).join('');
@@ -2050,6 +2191,9 @@ function openSeguimientoForm(s){
 function renderSeguimientoForm(s){
   const editando = !!s;
   const fPed = s && s.fechaPedido ? new Date(s.fechaPedido).toISOString().slice(0,10) : '';
+  // Pedidos creados antes de este selector no tienen proveedor guardado: se
+  // ven como "Parcelsapp" (lo que ya hacían antes) hasta que Alberto elija otro.
+  const proveedor = (s && s.proveedor) || 'parcelsapp';
   return '<div class="compra-form">' +
     '<label class="cf-label">Número de tracking</label>' +
     '<input type="text" class="cf-input" id="segTracking" placeholder="Ej. RR040954195XX" value="' + esc((s&&s.tracking)||'') + '">' +
@@ -2064,12 +2208,18 @@ function renderSeguimientoForm(s){
         '<input type="date" class="cf-input" id="segFecha" value="' + fPed + '"></div>' +
     '</div>' +
 
-    '<label class="cf-label">Link de rastreo propio (opcional)</label>' +
-    '<input type="text" inputmode="url" class="cf-input" id="segLink" placeholder="Déjalo vacío y se usa parcelsapp solo" value="' + esc((s&&s.link)||'') + '">' +
-    '<div class="cf-estado-hint">Si lo dejas vacío, el botón ↗ abre parcelsapp con tu número. Pega un link aquí solo si prefieres otra página (ej. mailamericas) para este paquete.</div>' +
+    '<label class="cf-label">Página de rastreo</label>' +
+    '<div class="util-toggle seg-prov-toggle" id="segProvToggle">' +
+      '<button type="button" data-v="parcelsapp" class="' + ((proveedor)==='parcelsapp'?'active':'') + '">Parcelsapp</button>' +
+      '<button type="button" data-v="17track" class="' + (proveedor==='17track'?'active':'') + '">17TRACK</button>' +
+      '<button type="button" data-v="mailamericas" class="' + (proveedor==='mailamericas'?'active':'') + '">MailAmericas</button>' +
+      '<button type="button" data-v="personalizado" class="' + (proveedor==='personalizado'?'active':'') + '">Personalizado</button>' +
+    '</div>' +
+    '<div class="cf-estado-hint" id="segProvHint"></div>' +
+    '<input type="text" inputmode="url" class="cf-input" id="segLink" placeholder="Pega tu link aquí" value="' + esc((s&&s.link)||'') + '" style="' + (proveedor==='personalizado'?'':'display:none;') + '">' +
 
     (editando && s.estado ? '<div class="seg-form-estado">Último estado: <b>' + esc(segEstadoInfo(s.estado).txt) + '</b>' + (s.descripcion?' · ' + esc(s.descripcion):'') + '</div>' : '') +
-    (editando ? '<a class="cf-link-track" href="' + esc(segTrackUrl(s.tracking, s.link)) + '" target="_blank" rel="noopener">↗ Abrir rastreo en el navegador</a>' : '') +
+    (editando ? '<a class="cf-link-track" id="segAbrirRastreo" href="' + esc(segTrackUrl(s.tracking, s.link, proveedor)) + '" target="_blank" rel="noopener">↗ Abrir rastreo en el navegador</a>' : '') +
 
     '<div class="cf-actions">' +
       (editando ? '<button type="button" class="cf-btn cf-btn-danger" id="segEliminar">Eliminar</button>' : '') +
@@ -2079,7 +2229,39 @@ function renderSeguimientoForm(s){
   '</div>';
 }
 
+// Explica por qué MailAmericas no abre directo con el número (a diferencia
+// de las otras dos), para que Alberto no piense que está roto.
+const SEG_PROV_HINT = {
+  parcelsapp: 'Abre parcelsapp.com con tu número ya puesto — funciona de un toque.',
+  '17track': 'Abre 17TRACK con tu número ya puesto — funciona de un toque.',
+  mailamericas: 'MailAmericas no tiene link directo por número (pide iniciar sesión): se abre su web y ahí pegas el número tú mismo.',
+  personalizado: 'Pega abajo el link que quieras usar para este paquete.',
+};
+
 function wireSeguimientoForm(s){
+  let proveedorSel = (s && s.proveedor) || 'parcelsapp';
+  const hintEl = document.getElementById('segProvHint');
+  const linkInput = document.getElementById('segLink');
+  const abrirA = document.getElementById('segAbrirRastreo');
+  const actualizarProvUI = () => {
+    document.querySelectorAll('#segProvToggle button').forEach(b =>
+      b.classList.toggle('active', b.getAttribute('data-v') === proveedorSel));
+    if(hintEl) hintEl.textContent = SEG_PROV_HINT[proveedorSel] || '';
+    if(linkInput) linkInput.style.display = proveedorSel === 'personalizado' ? '' : 'none';
+    if(abrirA){
+      const tracking = document.getElementById('segTracking').value.trim();
+      abrirA.href = segTrackUrl(tracking, linkInput ? linkInput.value.trim() : '', proveedorSel);
+    }
+  };
+  actualizarProvUI();
+  document.getElementById('segProvToggle').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-v]');
+    if(!btn) return;
+    proveedorSel = btn.getAttribute('data-v');
+    actualizarProvUI();
+  });
+  if(linkInput) linkInput.addEventListener('input', actualizarProvUI);
+
   const guardar = (archivar) => {
     const tracking = document.getElementById('segTracking').value.trim();
     if(!tracking){ alert('Pega el número de tracking.'); return; }
@@ -2090,6 +2272,7 @@ function wireSeguimientoForm(s){
       plataforma: document.getElementById('segPlataforma').value.trim(),
       fechaPedido: document.getElementById('segFecha').value || '',
       link: document.getElementById('segLink').value.trim(),
+      proveedor: proveedorSel,
       archivado: archivar ? true : (s ? s.archivado : false),
     };
     const btn = document.getElementById(archivar ? 'segArchivar' : 'segGuardar');
@@ -2136,7 +2319,7 @@ function renderSeguimientoFsBody(){
           '<div class="seg-meta">' + (sub?esc(sub):'<span class="muted">Toca ↗ para ver el estado</span>') + '</div>' +
           '<div class="seg-track">' + esc(s.tracking) + '</div>' +
         '</div>' +
-        '<a class="seg-link" href="' + esc(segTrackUrl(s.tracking, s.link)) + '" target="_blank" rel="noopener">↗</a>' +
+        '<a class="seg-link" href="' + esc(segTrackUrl(s.tracking, s.link, s.proveedor)) + '" target="_blank" rel="noopener">↗</a>' +
       '</div>';
   };
   let html = '<div class="seg-fs-list">' + activos.map(fila).join('');
