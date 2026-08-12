@@ -730,15 +730,25 @@ let metaPersoMetrica = 'ventas';
 try{ metaPersoMetrica = localStorage.getItem('timeless_metaperso_metrica') || 'ventas'; }catch(e){}
 if(['ventas','efectivo'].indexOf(metaPersoMetrica) === -1) metaPersoMetrica = 'ventas';
 
+// 'total' = acumulado desde que creaste la meta vs el monto completo (igual
+// que antes). 'dia' = SOLO lo de hoy vs la meta de hoy (monto que falta ÷
+// días restantes, recalculada cada día — igual idea que "Por día" en Meta del
+// mes, pero la meta de hoy cambia sola según cómo vayas, no es fija).
+let metaPersoModo = 'total';
+try{ metaPersoModo = localStorage.getItem('timeless_metaperso_modo') || 'total'; }catch(e){}
+if(['dia','total'].indexOf(metaPersoModo) === -1) metaPersoModo = 'total';
+
 function renderMetaPerso(data){
   const box = document.getElementById('metaPersoBody');
   if(!box) return;
   document.querySelectorAll('#metaPersoMetricaToggle button').forEach(b =>
     b.classList.toggle('active', b.getAttribute('data-metrica') === metaPersoMetrica));
+  document.querySelectorAll('#metaPersoModoToggle button').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-modo') === metaPersoModo));
 
   const m = leerMetaPerso();
   if(!m || !m.monto || !m.fechaLimite){
-    box.innerHTML = '<div class="metames-empty">Aún no tienes una meta personalizada. Toca "✎ Editar" para crear una (ej. "S/ 970 para el 20 de agosto").</div>';
+    box.innerHTML = '<div class="metames-empty">Aún no tienes una meta personalizada. Toca "✎ Editar meta" para crear una (ej. "S/ 970 para el 20 de agosto").</div>';
     return;
   }
 
@@ -753,26 +763,42 @@ function renderMetaPerso(data){
     ? getVentasDetalle(data).filter(v => v.date >= fCreacion && v.date <= hoy)
     : [];
   const ventasAcum = detVentas.reduce((s,v) => s + v.venta, 0);
+  const ventasHoy = detVentas.filter(v => dayKey(v.date) === dayKey(hoy)).reduce((s,v) => s + v.venta, 0);
 
   // Gastos SIN excluir "Inversión": para saber cuánta plata tienes en mano de
   // verdad, comprar mercadería también cuenta como salida de efectivo ahora.
   // Se listan uno por uno (no solo el total) porque tu app de gastos guarda
   // el DÍA pero no la hora: si creaste la meta el mismo día que ya habías
   // gastado algo, ese gasto cae dentro de la ventana igual — acá lo puedes
-  // destildar a mano para que no cuente.
+  // destildar a mano para que no cuente. La lista siempre muestra TODO el
+  // período (no solo hoy) aunque estés en modo "Por día", porque de ahí sale
+  // el acumulado real que también se usa en el resumen de meta total.
   const gastosPeriodo = body(data.gastos)
     .map(r => ({id: String(r[0]||''), date: parseDateSmart(r[1]), categoria: (r[2]||'').trim(), monto: parseMoney(r[3]), nota: (r[4]||'').trim()}))
     .filter(g => g.id && g.date && g.monto > 0 && g.date >= fCreacion && g.date <= hoy)
     .sort((a,b) => b.date - a.date);
-  const gastosAcum = gastosPeriodo.filter(g => excluidos.indexOf(g.id) === -1).reduce((s,g) => s + g.monto, 0);
+  const gastosIncluidos = gastosPeriodo.filter(g => excluidos.indexOf(g.id) === -1);
+  const gastosAcum = gastosIncluidos.reduce((s,g) => s + g.monto, 0);
+  const gastosHoy = gastosIncluidos.filter(g => dayKey(g.date) === dayKey(hoy)).reduce((s,g) => s + g.monto, 0);
 
   const efectivoAcum = ventasAcum - gastosAcum;
+  const efectivoHoy = ventasHoy - gastosHoy;
   const esEfectivo = metaPersoMetrica === 'efectivo';
-  const acumulado = esEfectivo ? efectivoAcum : ventasAcum;
-  const falta = Math.max(0, m.monto - acumulado);
-  const pct = Math.min(100, m.monto > 0 ? acumulado / m.monto * 100 : 0);
-  const cumplida = acumulado >= m.monto;
-  const porDia = diasRestantes > 0 ? falta / diasRestantes : falta;
+  const esDia = metaPersoModo === 'dia';
+
+  const acumuladoTotal = esEfectivo ? efectivoAcum : ventasAcum;
+  const faltaTotal = Math.max(0, m.monto - acumuladoTotal);
+  const cumplidaTotal = acumuladoTotal >= m.monto;
+  const metaDiaria = diasRestantes > 0 ? faltaTotal / diasRestantes : faltaTotal;
+
+  // Lo que se muestra arriba (número grande) cambia según el modo; el resto
+  // (lista de gastos, acumulado total) es siempre el mismo cálculo real.
+  const acumulado = esDia ? (esEfectivo ? efectivoHoy : ventasHoy) : acumuladoTotal;
+  const metaMostrada = esDia ? metaDiaria : m.monto;
+  const falta = Math.max(0, metaMostrada - acumulado);
+  const pct = Math.min(100, metaMostrada > 0 ? acumulado / metaMostrada * 100 : 0);
+  const cumplida = esDia ? (metaMostrada <= 0 || acumulado >= metaMostrada) : cumplidaTotal;
+
   // Quita el punto final que el navegador agrega a "ago." (mes corto) —
   // si no, frases como "hasta el 18-ago." quedan con doble punto al final.
   const fLimiteTxt = fLimite.toLocaleDateString('es-PE', {day:'2-digit', month:'short'}).replace(/\.$/, '');
@@ -781,18 +807,26 @@ function renderMetaPerso(data){
   let html =
     '<div class="metames-big">' +
       '<span class="mono">S/ ' + fmt0(acumulado) + '</span>' +
-      '<span class="metames-goal">de S/ ' + fmt0(m.monto) + '</span>' +
+      '<span class="metames-goal">de S/ ' + fmt0(metaMostrada) + (esDia?' hoy':'') + '</span>' +
     '</div>' +
     '<div class="proj-bar"><div class="proj-bar-fill" style="width:' + pct + '%"></div></div>';
 
-  if(cumplida){
+  if(esDia){
+    if(cumplida){
+      html += '<div class="metames-note"><span class="ok">✓ Meta de hoy cumplida.</span> Lo que vendas de más ya adelanta el día de mañana.</div>';
+    } else {
+      html += '<div class="metames-note">Te faltan <span class="bad">S/ ' + fmt0(falta) + '</span> hoy para ir al ritmo que necesitas.</div>';
+    }
+    html += '<div class="metames-note">Meta total: S/ ' + fmt0(m.monto) + ' para el ' + fLimiteTxt +
+      ' — llevas S/ ' + fmt0(acumuladoTotal) + (vencida ? '' : ' (' + diasRestantes + ' día(s) restantes)') + '.</div>';
+  } else if(cumplida){
     html += '<div class="metames-note"><span class="ok">✓ Meta cumplida' +
       (vencida ? '' : (' — te quedan ' + diasRestantes + ' día(s) hasta el ' + fLimiteTxt)) + '.</span></div>';
   } else if(vencida){
     html += '<div class="metames-note"><span class="bad">Venció el ' + fLimiteTxt + '.</span> Te faltaron S/ ' + fmt0(falta) + '.</div>';
   } else {
     html += '<div class="metames-note">Te faltan <span class="bad">S/ ' + fmt0(falta) + '</span> para el ' + fLimiteTxt +
-      (diasRestantes > 1 ? ' — unos S/ ' + fmt0(porDia) + ' por día (' + diasRestantes + ' días restantes).' : ' — hoy es el último día.') + '</div>';
+      (diasRestantes > 1 ? ' — unos S/ ' + fmt0(metaDiaria) + ' por día (' + diasRestantes + ' días restantes).' : ' — hoy es el último día.') + '</div>';
   }
 
   if(esEfectivo){
@@ -895,6 +929,13 @@ document.getElementById('metaPersoMetricaToggle').addEventListener('click', (e) 
   if(!btn) return;
   metaPersoMetrica = btn.getAttribute('data-metrica');
   try{ localStorage.setItem('timeless_metaperso_metrica', metaPersoMetrica); }catch(err){}
+  if(LAST) renderMetaPerso(LAST.data);
+});
+document.getElementById('metaPersoModoToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-modo]');
+  if(!btn) return;
+  metaPersoModo = btn.getAttribute('data-modo');
+  try{ localStorage.setItem('timeless_metaperso_modo', metaPersoModo); }catch(err){}
   if(LAST) renderMetaPerso(LAST.data);
 });
 
