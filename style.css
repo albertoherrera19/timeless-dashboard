@@ -350,6 +350,8 @@ h1{
   font-size:13px;
 }
 .stock-row:last-child{border-bottom:none;}
+.stock-row{cursor:pointer;}
+.stock-reinicio-flag{font-size:11px;margin-right:4px;}
 .stock-row.low-row{
   background:linear-gradient(90deg, transparent, rgba(251,113,133,.10));
   border-radius:8px;

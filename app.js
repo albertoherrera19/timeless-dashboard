@@ -1848,7 +1848,19 @@ const REABASTECIDO_GAP_DIAS = 5;
 // registrada, o la del día que se reanudaron las ventas después del hueco más
 // reciente de REABASTECIDO_GAP_DIAS+ días sin vender nada (señal de que se
 // agotó y volvió a llegar stock nuevo).
+//
+// OJO (2026-08-12): se probó detectar esto solo con "llevas N días sin vender
+// + ya tienes stock", pero eso confunde un reabastecido real con un producto
+// que simplemente vende lento (mismo bloque de siempre, nunca se agotó) — un
+// hueco de días no distingue las dos cosas, y no hay forma de saber la fecha
+// real de llegada solo con los datos de Stocks (Fecha pedido es cuándo lo
+// pediste, no cuándo llegó). Por eso el reinicio es MANUAL: cuando repones
+// algo que se había agotado, márcalo tú mismo tocando el producto en
+// Inventario (ver marcarReinicioRitmo) — así nunca se mezcla el ritmo de un
+// drop viejo con uno nuevo, pero tampoco se borra sola la data de productos
+// que solo están vendiendo despacio.
 function getDisponibleDesdePorProducto(detalle){
+  const reinicios = leerReiniciosRitmo();
   const porProducto = {};
   detalle.forEach(v => {
     splitCombo(v.producto).forEach(p => {
@@ -1865,9 +1877,30 @@ function getDisponibleDesdePorProducto(detalle){
       const gap = Math.round((fechas[i] - fechas[i-1]) / 86400000);
       if(gap >= REABASTECIDO_GAP_DIAS) inicio = fechas[i];
     }
+    const reinicio = reinicios[key] ? parseDateSmart(reinicios[key]) : null;
+    if(reinicio && reinicio > inicio) inicio = reinicio;
     desde[key] = inicio;
   });
   return desde;
+}
+
+// Reinicio manual del ritmo de venta: Alberto lo marca tocando un producto en
+// Inventario cuando lo repone después de haberse agotado, para que "días para
+// agotar" mida SOLO desde ese día en adelante y no mezcle el ritmo del drop
+// anterior. Se guarda como {normProducto: fechaISO} — si luego el producto
+// tiene otro hueco real de REABASTECIDO_GAP_DIAS+ días con una venta después,
+// el cálculo de arriba lo actualiza solo (usa lo que sea más reciente).
+const STOCK_REINICIOS_KEY = 'timeless_stock_reinicios';
+function leerReiniciosRitmo(){
+  try{ return JSON.parse(localStorage.getItem(STOCK_REINICIOS_KEY) || '{}'); }catch(e){ return {}; }
+}
+function marcarReinicioRitmo(key, fechaISO){
+  const r = leerReiniciosRitmo(); r[key] = fechaISO;
+  try{ localStorage.setItem(STOCK_REINICIOS_KEY, JSON.stringify(r)); }catch(e){}
+}
+function quitarReinicioRitmo(key){
+  const r = leerReiniciosRitmo(); delete r[key];
+  try{ localStorage.setItem(STOCK_REINICIOS_KEY, JSON.stringify(r)); }catch(e){}
 }
 
 // Velocidad de venta por producto (unidades/día), separando combos ("A + B" =
@@ -1975,6 +2008,7 @@ function renderStock(stocks, data, gastos){
     return;
   }
 
+  const reinicios = leerReiniciosRitmo();
   box.innerHTML = conStock.map(s => {
     let agotaTxt, agotaCls;
     if(s.diasAgota == null){
@@ -1989,15 +2023,38 @@ function renderStock(stocks, data, gastos){
     // pedir más porque ese pedido ya está en camino.
     const repuestoTag = s.yaRepuesto ? '<span class="stock-repuesto">✓ repuesto</span>' : '';
     const rowCls = s.reponer ? ' reponer-row' : (s.yaRepuesto ? ' repuesto-row' : (s.isLow ? ' low-row' : ''));
-    return '<div class="stock-row' + rowCls + '">' +
-        '<span class="stock-name">' + esc(s.producto) + '</span>' +
+    const key = normProducto(s.producto);
+    // 🔄 = marcaste este producto como "recién repuesto" (ver
+    // marcarReinicioRitmo): toca el nombre para marcar/desmarcar.
+    const reinicioFlag = reinicios[key] ? '<span class="stock-reinicio-flag" title="Ritmo reiniciado el ' + esc(fmtDateShort(parseDateSmart(reinicios[key]))) + '">🔄</span>' : '';
+    return '<div class="stock-row' + rowCls + '" data-key="' + esc(key) + '" data-producto="' + esc(s.producto) + '">' +
+        '<span class="stock-name">' + reinicioFlag + esc(s.producto) + '</span>' +
         '<span class="stock-agota ' + agotaCls + '">' + agotaTxt + '</span>' +
         repuestoTag +
         '<span class="stock-qty' + (s.isLow ? ' low' : '') + '">' + fmt0(s.stock) + ' und' + '</span>' +
       '</div>';
   }).join('');
 
+  box.querySelectorAll('.stock-row').forEach(el => {
+    el.addEventListener('click', () => toggleReinicioRitmo(el.getAttribute('data-key'), el.getAttribute('data-producto')));
+  });
+
   renderAgotadosYPorPedir(stocks, gastos);
+}
+
+// Toca un producto en Inventario para marcarlo "recién repuesto" (o quitar la
+// marca) — ver getDisponibleDesdePorProducto arriba para el porqué es manual.
+function toggleReinicioRitmo(key, producto){
+  const reinicios = leerReiniciosRitmo();
+  if(reinicios[key]){
+    const fecha = fmtDateShort(parseDateSmart(reinicios[key]));
+    if(!confirm('"' + producto + '" está marcado como recién repuesto desde el ' + fecha + '.\n\n¿Quitar esta marca?')) return;
+    quitarReinicioRitmo(key);
+  } else {
+    if(!confirm('¿Marcar "' + producto + '" como recién repuesto?\n\nÚsalo cuando se había agotado y le acabas de traer stock nuevo: "días para agotar" va a medir SOLO desde hoy, sin mezclarlo con el ritmo del drop anterior. Vas a ver "sin ventas" hasta tu primera venta de este stock.')) return;
+    marcarReinicioRitmo(key, todayISO());
+  }
+  if(LAST) renderStock(LAST.stocks, LAST.data, LAST.gastos);
 }
 
 // Productos que se acaban de agotar (recién pasaron de tener stock a stock=0)
