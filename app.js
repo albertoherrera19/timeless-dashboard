@@ -431,6 +431,9 @@ function getStocks(data){
     // mostrar "pedido el 3 ago · hace 5 días" en Pedidos por llegar.
     fechaPedido: parseDateSmart(r[8]),
     plataforma: (r[9]||'').trim(),
+    // Costo unitario EXACTO por bloque (no promediado) × stock que le queda a
+    // cada bloque, ya sumado en sync-ventas.ps1 — ver getStockInvertido.
+    stockInvertido: parseMoney(r[10]),
   })).filter(s => s.producto && s.producto.toLowerCase() !== 'totales');
 }
 
@@ -1602,9 +1605,14 @@ function renderHero(ventas, gastos, data, mk){
 // al agregar productos nuevos).
 function getStockInvertido(stocks){
   return stocks.reduce((s, x) => {
-    if(x.stock > 0 && x.cantidadPedido > 0 && x.invertido > 0){
-      return s + x.invertido * (x.stock / x.cantidadPedido);
-    }
+    if(x.stock <= 0) return s;
+    // stockInvertido ya viene calculado EXACTO por bloque desde sync-ventas.ps1
+    // (costo unitario real de cada pedido × lo que le queda a ESE pedido, no
+    // un promedio) — igual al criterio de la columna "Stock invertido" de tu
+    // Excel. Si todavía no subiste el sync nuevo (campo en 0/vacío), cae al
+    // promedio de antes para no mostrar S/0 de golpe.
+    if(x.stockInvertido > 0) return s + x.stockInvertido;
+    if(x.cantidadPedido > 0 && x.invertido > 0) return s + x.invertido * (x.stock / x.cantidadPedido);
     return s;
   }, 0);
 }
