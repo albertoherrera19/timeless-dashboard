@@ -1759,15 +1759,35 @@ const PENDIENTES_VISTOS_KEY = 'timeless_pendientes_vistos';
 const PENDIENTES_LLEGADOS_KEY = 'timeless_pendientes_llegados';
 const PENDIENTE_LLEGADO_MS = 24 * 60 * 60 * 1000;
 
+// A veces Alberto corrige el Stock a mano por un error de conteo (no un pedido
+// real que llegue) - eso hace que "pendiente" suba solo (cantidadPedido−stock
+// −vendidos), aunque nada esté realmente en camino. No hay forma de distinguir
+// eso de un pedido real solo con los datos, así que se puede IGNORAR con un
+// toque: se guarda la cantidad pendiente en ese momento, y solo vuelve a
+// aparecer si esa cantidad CAMBIA (ej. hiciste un pedido nuevo de verdad).
+const PENDIENTES_IGNORADOS_KEY = 'timeless_pendientes_ignorados';
+function leerPendientesIgnorados(){
+  try{ return JSON.parse(localStorage.getItem(PENDIENTES_IGNORADOS_KEY) || '{}'); }catch(e){ return {}; }
+}
+function ignorarPendiente(key, cantidad){
+  const ign = leerPendientesIgnorados(); ign[key] = cantidad;
+  try{ localStorage.setItem(PENDIENTES_IGNORADOS_KEY, JSON.stringify(ign)); }catch(e){}
+}
+
 function renderPendientes(stocks, canjes, vendidosHist){
   const box = document.getElementById('pendingBlock');
   if(!box) return;
   box.classList.remove('clickable');
   box.onclick = null;
 
-  const rows = getPendientesDeStock(stocks, canjes, vendidosHist);
+  // rowsAll (sin filtrar) es lo que decide si algo "ya llegó" — un pendiente
+  // ignorado no debe disparar esa nota (no llegó nada, solo lo escondiste).
+  // "rows" (filtrado) es lo que se MUESTRA y se suma en la tarjeta.
+  const ignorados = leerPendientesIgnorados();
+  const rowsAll = getPendientesDeStock(stocks, canjes, vendidosHist);
+  const rows = rowsAll.filter(r => ignorados[normProducto(r.producto)] !== Math.round(r.cantidad));
   const nowKeys = {};
-  rows.forEach(r => { nowKeys[normName(r.producto)] = true; });
+  rowsAll.forEach(r => { nowKeys[normName(r.producto)] = true; });
 
   let vistosAntes = {};
   try{ vistosAntes = JSON.parse(localStorage.getItem(PENDIENTES_VISTOS_KEY) || '{}'); }catch(e){}
@@ -1787,7 +1807,7 @@ function renderPendientes(stocks, canjes, vendidosHist){
   llegados = llegados.filter(l => (ahora - l.ts) < PENDIENTE_LLEGADO_MS && !nowKeys[l.key]);
 
   const vistosGuardar = {};
-  rows.forEach(r => { vistosGuardar[normName(r.producto)] = r.producto; });
+  rowsAll.forEach(r => { vistosGuardar[normName(r.producto)] = r.producto; });
   try{
     localStorage.setItem(PENDIENTES_VISTOS_KEY, JSON.stringify(vistosGuardar));
     localStorage.setItem(PENDIENTES_LLEGADOS_KEY, JSON.stringify(llegados));
@@ -1805,12 +1825,14 @@ function renderPendientes(stocks, canjes, vendidosHist){
       '</div>' +
       rows.map(r => {
         const meta = fmtPedidoMeta(r.fechaPedido, r.plataforma);
+        const key = normProducto(r.producto);
         return '<div class="pend-row">' +
           '<span class="pend-info">' +
             '<span class="pend-name">' + esc(r.producto) + (r.nuevo ? ' <span class="pend-nuevo">Nuevo</span>' : '') + '</span>' +
             (meta ? '<span class="pend-meta">' + esc(meta) + '</span>' : '') +
           '</span>' +
           '<span class="pend-amt mono">S/ ' + fmt(r.invertido) + '</span>' +
+          '<button type="button" class="pend-ignorar" data-key="' + esc(key) + '" data-cantidad="' + Math.round(r.cantidad) + '" data-producto="' + esc(r.producto) + '" title="No es un pedido real (fue un ajuste de stock)">✕</button>' +
         '</div>';
       }).join('');
   }
@@ -1823,6 +1845,15 @@ function renderPendientes(stocks, canjes, vendidosHist){
   }
 
   box.innerHTML = html;
+  box.querySelectorAll('.pend-ignorar').forEach(btn => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const producto = btn.getAttribute('data-producto');
+      if(!confirm('"' + producto + '" — ¿esto NO es un pedido real? (fue un ajuste de stock por error de conteo, no algo que va a llegar)\n\nSe deja de mostrar aquí. Si más adelante haces un pedido de verdad, vuelve a aparecer solo.')) return;
+      ignorarPendiente(btn.getAttribute('data-key'), Number(btn.getAttribute('data-cantidad')));
+      if(LAST) renderPendientes(LAST.stocks, getCanjesPorProducto(LAST.gastos || []), getVendidosHistoricoSet(LAST.data));
+    });
+  });
   if(rows.length > 0){
     box.classList.add('clickable');
     box.onclick = () => openFullscreen('Pedidos por llegar · detalle', renderPendientesFsBody(rows));

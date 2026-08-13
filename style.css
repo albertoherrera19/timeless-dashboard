@@ -335,6 +335,13 @@ h1{
 .pend-amt{font-weight:700;flex-shrink:0;}
 .pend-row.llego .pend-name{color:var(--muted);text-decoration:line-through;}
 .pend-row.llego .pend-amt{color:var(--ok);}
+/* Descartar un pendiente falso (ajuste de conteo de Stock, no un pedido real). */
+.pend-ignorar{
+  width:22px;height:22px;flex-shrink:0;border-radius:6px;cursor:pointer;
+  background:var(--chip);border:1px solid var(--line);color:var(--muted);
+  font-size:12px;line-height:1;padding:0;
+}
+.pend-ignorar:active{background:var(--bad);border-color:var(--bad);color:#fff;}
 .pend-nuevo{
   display:inline-block;font-size:9px;font-weight:700;color:var(--ok);
   border:1px solid var(--ok);border-radius:8px;padding:1px 5px;
