@@ -2039,6 +2039,13 @@ function quitarReinicioRitmo(key){
   try{ localStorage.setItem(STOCK_REINICIOS_KEY, JSON.stringify(r)); }catch(e){}
 }
 
+// Cuántos días para adelante cuenta una venta YA REGISTRADA como "real" para
+// el promedio (tu flujo normal es vender hoy y entregar mañana). Chico a
+// propósito: si algún día pre-registras algo mucho más lejos, no queremos
+// repetir el bug de antes (una sola venta muy a futuro colapsando la ventana
+// completa) — 3 días cubre "mañana" con margen sin abrir esa puerta.
+const CAP_DIAS_FUTURO = 3;
+
 // Velocidad de venta por producto (unidades/día), separando combos ("A + B" =
 // 1 unidad de A y 1 de B). Ventana de hasta `dias` días, pero si un producto
 // está disponible desde hace menos que eso (recién traído, o reabastecido
@@ -2047,6 +2054,12 @@ function quitarReinicioRitmo(key){
 // de algo recién repuesto sale subestimada y "días para agotar" sale inflado
 // (ej. si lo trajiste hace una semana, mide sobre esa semana, no sobre 30
 // días de los que la mayoría no tenías nada en stock).
+//
+// "Hoy efectivo" por producto: si ya tienes una venta registrada para los
+// próximos días (CAP_DIAS_FUTURO), esa venta SÍ cuenta — pero tanto el
+// numerador (unidades) como el denominador (días de la ventana) se estiran
+// juntos hasta esa fecha, así el promedio sigue siendo justo (ej. disponible
+// desde hoy + 2 ventas programadas para mañana = 2 unidades ÷ 2 días, no ÷ 1).
 function getVelocidadVenta(data, dias){
   const vel = {};
   if(!data.ventasDetalle) return vel;
@@ -2054,20 +2067,33 @@ function getVelocidadVenta(data, dias){
   const detalle = getVentasDetalle(data);
   const disponibleDesde = getDisponibleDesdePorProducto(detalle);
 
+  const limiteFuturo = new Date(hoy); limiteFuturo.setDate(limiteFuturo.getDate() + CAP_DIAS_FUTURO);
+  const hoyEfectivo = {};
+  detalle.forEach(v => {
+    if(v.date <= hoy || v.date > limiteFuturo) return;
+    splitCombo(v.producto).forEach(p => {
+      const key = normProducto(p);
+      if(!key) return;
+      if(!hoyEfectivo[key] || v.date > hoyEfectivo[key]) hoyEfectivo[key] = v.date;
+    });
+  });
+
   const ventana = {};
   Object.keys(disponibleDesde).forEach(key => {
-    const diasDisponible = Math.floor((hoy - disponibleDesde[key]) / 86400000) + 1;
+    const tope = hoyEfectivo[key] || hoy;
+    const diasDisponible = Math.floor((tope - disponibleDesde[key]) / 86400000) + 1;
     ventana[key] = Math.min(dias, Math.max(1, diasDisponible));
   });
 
   const units = {};
   detalle.forEach(v => {
-    if(v.date > hoy) return; // idem: ventas programadas a futuro no cuentan aquí
     splitCombo(v.producto).forEach(p => {
       const key = normProducto(p);
       if(!key) return;
+      const tope = hoyEfectivo[key] || hoy;
+      if(v.date > tope) return; // ni pasada ni programada dentro del margen cercano
       const w = ventana[key] || dias;
-      const cutoff = new Date(hoy); cutoff.setDate(cutoff.getDate() - w);
+      const cutoff = new Date(tope); cutoff.setDate(cutoff.getDate() - w);
       if(v.date >= cutoff) units[key] = (units[key] || 0) + 1;
     });
   });

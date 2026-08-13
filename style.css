@@ -244,8 +244,9 @@ h1{
 .seg-prov-toggle button{flex:1 1 auto;padding:6px 8px;}
 
 /* Meta personalizada: hasta 7 botones (Por día + hasta 5 hitos + Meta total) —
-   se envuelven en varias filas en vez de desbordar. */
-#metaPersoModoToggle{display:flex;flex-wrap:wrap;width:100%;gap:3px;}
+   se ajusta a su propio contenido (no estira toda la fila); solo se envuelve
+   en varias líneas si de verdad no caben todos en una (muchas metas). */
+#metaPersoModoToggle{display:inline-flex;flex-wrap:wrap;max-width:100%;gap:3px;}
 #metaPersoModoToggle button{flex:0 0 auto;padding:6px 9px;}
 .r-row .r-amt.plus{color:var(--ok);}
 .r-row .r-amt.minus{color:var(--bad);}
