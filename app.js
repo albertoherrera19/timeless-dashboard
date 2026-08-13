@@ -759,8 +759,13 @@ function renderMetaPerso(data){
   const vencida = fLimite < hoy;
   const excluidos = m.excluidos || [];
 
+  // El total ("Por meta total") SÍ cuenta ventas que ya programaste para
+  // fechas futuras dentro del rango de la meta (ej. entregas de mañana) —
+  // ya son ventas reales y comprometidas, no una proyección. "Por día" en
+  // cambio solo mira lo de HOY exacto (ver ventasHoy más abajo), para que la
+  // meta diaria no se adelante sola con ventas que aún no entregas.
   const detVentas = data.ventasDetalle
-    ? getVentasDetalle(data).filter(v => v.date >= fCreacion && v.date <= hoy)
+    ? getVentasDetalle(data).filter(v => v.date >= fCreacion && v.date <= fLimite)
     : [];
   const ventasAcum = detVentas.reduce((s,v) => s + v.venta, 0);
   const ventasHoy = detVentas.filter(v => dayKey(v.date) === dayKey(hoy)).reduce((s,v) => s + v.venta, 0);
@@ -1849,6 +1854,16 @@ const REABASTECIDO_GAP_DIAS = 5;
 // reciente de REABASTECIDO_GAP_DIAS+ días sin vender nada (señal de que se
 // agotó y volvió a llegar stock nuevo).
 //
+// OJO (2026-08-12): solo cuenta ventas YA PASADAS (v.date <= hoy). Tú
+// pre-registras ventas para el día siguiente (entrega al otro día) — si se
+// dejan pasar esas fechas futuras aquí, "cuentan como si ya hubieran
+// pasado hoy" y la ventana de cálculo se reduce a 1-2 días, dando velocidad
+// artificialmente alta (2 ventas programadas / 2 días de ventana = 1
+// unidad/día siempre, calzando sospechosamente con el stock). Esas ventas
+// futuras SÍ importan para "Meta personalizada" (ya son ventas reales,
+// comprometidas) pero NO para medir el ritmo actual de un producto, que solo
+// puede medirse con lo que YA se vendió.
+//
 // OJO (2026-08-12): se probó detectar esto solo con "llevas N días sin vender
 // + ya tienes stock", pero eso confunde un reabastecido real con un producto
 // que simplemente vende lento (mismo bloque de siempre, nunca se agotó) — un
@@ -1861,8 +1876,10 @@ const REABASTECIDO_GAP_DIAS = 5;
 // que solo están vendiendo despacio.
 function getDisponibleDesdePorProducto(detalle){
   const reinicios = leerReiniciosRitmo();
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
   const porProducto = {};
   detalle.forEach(v => {
+    if(v.date > hoy) return; // ventas programadas a futuro no cuentan como "ya pasadas"
     splitCombo(v.producto).forEach(p => {
       const key = normProducto(p);
       if(!key) return;
@@ -1926,6 +1943,7 @@ function getVelocidadVenta(data, dias){
 
   const units = {};
   detalle.forEach(v => {
+    if(v.date > hoy) return; // idem: ventas programadas a futuro no cuentan aquí
     splitCombo(v.producto).forEach(p => {
       const key = normProducto(p);
       if(!key) return;
