@@ -730,24 +730,22 @@ let metaPersoMetrica = 'ventas';
 try{ metaPersoMetrica = localStorage.getItem('timeless_metaperso_metrica') || 'ventas'; }catch(e){}
 if(['ventas','efectivo'].indexOf(metaPersoMetrica) === -1) metaPersoMetrica = 'ventas';
 
-// 'total' = acumulado desde que creaste la meta vs el monto completo (igual
-// que antes). 'dia' = SOLO lo de hoy vs la meta de hoy (monto que falta ÷
-// días restantes, recalculada cada día — igual idea que "Por día" en Meta del
-// mes, pero la meta de hoy cambia sola según cómo vayas, no es fija).
+// 'total' = acumulado desde que creaste la meta vs el monto completo.
+// 'dia' = SOLO lo de hoy vs el ritmo diario que necesitas para tu próxima
+// parada. 'hito:<fechaISO>' = una meta intermedia "hasta tal día" (ver hitos).
 let metaPersoModo = 'total';
 try{ metaPersoModo = localStorage.getItem('timeless_metaperso_modo') || 'total'; }catch(e){}
-if(['dia','total'].indexOf(metaPersoModo) === -1) metaPersoModo = 'total';
 
 function renderMetaPerso(data){
   const box = document.getElementById('metaPersoBody');
   if(!box) return;
+  const modoToggle = document.getElementById('metaPersoModoToggle');
   document.querySelectorAll('#metaPersoMetricaToggle button').forEach(b =>
     b.classList.toggle('active', b.getAttribute('data-metrica') === metaPersoMetrica));
-  document.querySelectorAll('#metaPersoModoToggle button').forEach(b =>
-    b.classList.toggle('active', b.getAttribute('data-modo') === metaPersoModo));
 
   const m = leerMetaPerso();
   if(!m || !m.monto || !m.fechaLimite){
+    if(modoToggle) modoToggle.innerHTML = '';
     box.innerHTML = '<div class="metames-empty">Aún no tienes una meta personalizada. Toca "✎ Editar meta" para crear una (ej. "S/ 970 para el 20 de agosto").</div>';
     return;
   }
@@ -755,89 +753,125 @@ function renderMetaPerso(data){
   const hoy = new Date(); hoy.setHours(0,0,0,0);
   const fLimite = parseDateSmart(m.fechaLimite);
   const fCreacion = parseDateSmart(m.fechaCreacion) || hoy;
-  const diasRestantes = Math.max(0, Math.round((fLimite - hoy) / 86400000) + 1);
-  const vencida = fLimite < hoy;
   const excluidos = m.excluidos || [];
+  const esEfectivo = metaPersoMetrica === 'efectivo';
+  const fCorto = d => d.toLocaleDateString('es-PE', {day:'2-digit', month:'short'}).replace(/\.$/, '');
 
-  // El total ("Por meta total") SÍ cuenta ventas que ya programaste para
-  // fechas futuras dentro del rango de la meta (ej. entregas de mañana) —
-  // ya son ventas reales y comprometidas, no una proyección. "Por día" en
-  // cambio solo mira lo de HOY exacto (ver ventasHoy más abajo), para que la
-  // meta diaria no se adelante sola con ventas que aún no entregas.
+  // Metas intermedias "hasta tal día": válidas, ordenadas por fecha, y solo
+  // las que caen ANTES de la fecha límite total (una después no tendría sentido).
+  const hitos = (m.hitos || [])
+    .filter(h => h && h.fecha && Number(h.monto) > 0)
+    .map(h => ({fecha: parseDateSmart(h.fecha), fechaISO: h.fecha, monto: Number(h.monto)}))
+    .filter(h => h.fecha && h.fecha < fLimite)
+    .sort((a,b) => a.fecha - b.fecha);
+
+  // Toggle dinámico: [Por día] [→ cada hito] [Meta total].
+  let togHtml = '<button type="button" data-modo="dia">Por día</button>';
+  hitos.forEach(h => { togHtml += '<button type="button" data-modo="hito:' + esc(h.fechaISO) + '">→ ' + esc(fCorto(h.fecha)) + '</button>'; });
+  togHtml += '<button type="button" data-modo="total">Meta total</button>';
+  if(modoToggle) modoToggle.innerHTML = togHtml;
+
+  // Si el modo apunta a un hito que ya no existe (lo borraste), cae a total.
+  let modo = metaPersoModo;
+  const esHito = modo.indexOf('hito:') === 0;
+  if(esHito && !hitos.some(h => 'hito:' + h.fechaISO === modo)) modo = 'total';
+  else if(!esHito && ['dia','total'].indexOf(modo) === -1) modo = 'total';
+  document.querySelectorAll('#metaPersoModoToggle button').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-modo') === modo));
+
+  // Ventas: creación → fecha límite (incluye ventas ya programadas a futuro,
+  // que son ventas reales comprometidas). Gastos: creación → hoy (para poder
+  // destildar los de antes de crear la meta). "Efectivo" = ventas − gastos,
+  // contando TODOS los gastos (incluida "Inversión"/mercadería): es la plata
+  // real que te queda en mano.
   const detVentas = data.ventasDetalle
     ? getVentasDetalle(data).filter(v => v.date >= fCreacion && v.date <= fLimite)
     : [];
-  const ventasAcum = detVentas.reduce((s,v) => s + v.venta, 0);
-  const ventasHoy = detVentas.filter(v => dayKey(v.date) === dayKey(hoy)).reduce((s,v) => s + v.venta, 0);
-
-  // Gastos SIN excluir "Inversión": para saber cuánta plata tienes en mano de
-  // verdad, comprar mercadería también cuenta como salida de efectivo ahora.
-  // Se listan uno por uno (no solo el total) porque tu app de gastos guarda
-  // el DÍA pero no la hora: si creaste la meta el mismo día que ya habías
-  // gastado algo, ese gasto cae dentro de la ventana igual — acá lo puedes
-  // destildar a mano para que no cuente. La lista siempre muestra TODO el
-  // período (no solo hoy) aunque estés en modo "Por día", porque de ahí sale
-  // el acumulado real que también se usa en el resumen de meta total.
   const gastosPeriodo = body(data.gastos)
     .map(r => ({id: String(r[0]||''), date: parseDateSmart(r[1]), categoria: (r[2]||'').trim(), monto: parseMoney(r[3]), nota: (r[4]||'').trim()}))
     .filter(g => g.id && g.date && g.monto > 0 && g.date >= fCreacion && g.date <= hoy)
     .sort((a,b) => b.date - a.date);
   const gastosIncluidos = gastosPeriodo.filter(g => excluidos.indexOf(g.id) === -1);
-  const gastosAcum = gastosIncluidos.reduce((s,g) => s + g.monto, 0);
-  const gastosHoy = gastosIncluidos.filter(g => dayKey(g.date) === dayKey(hoy)).reduce((s,g) => s + g.monto, 0);
 
-  const efectivoAcum = ventasAcum - gastosAcum;
-  const efectivoHoy = ventasHoy - gastosHoy;
-  const esEfectivo = metaPersoMetrica === 'efectivo';
-  const esDia = metaPersoModo === 'dia';
+  // Acumulado (ventas, o efectivo) hasta una fecha D inclusive.
+  const acumHasta = (D) => {
+    const v = detVentas.filter(x => x.date <= D).reduce((s,x) => s + x.venta, 0);
+    if(!esEfectivo) return v;
+    const g = gastosIncluidos.filter(x => x.date <= D).reduce((s,x) => s + x.monto, 0);
+    return v - g;
+  };
+  const soloHoy = () => {
+    const v = detVentas.filter(x => dayKey(x.date) === dayKey(hoy)).reduce((s,x) => s + x.venta, 0);
+    if(!esEfectivo) return v;
+    const g = gastosIncluidos.filter(x => dayKey(x.date) === dayKey(hoy)).reduce((s,x) => s + x.monto, 0);
+    return v - g;
+  };
+  const diasHasta = (D) => Math.max(0, Math.round((D - hoy) / 86400000) + 1);
 
-  const acumuladoTotal = esEfectivo ? efectivoAcum : ventasAcum;
-  const faltaTotal = Math.max(0, m.monto - acumuladoTotal);
-  const cumplidaTotal = acumuladoTotal >= m.monto;
-  const metaDiaria = diasRestantes > 0 ? faltaTotal / diasRestantes : faltaTotal;
+  // Todas las "paradas" (hitos + meta total) ordenadas por fecha.
+  const paradas = hitos.map(h => ({fecha: h.fecha, monto: h.monto}))
+    .concat([{fecha: fLimite, monto: m.monto}]);
 
-  // Lo que se muestra arriba (número grande) cambia según el modo; el resto
-  // (lista de gastos, acumulado total) es siempre el mismo cálculo real.
-  const acumulado = esDia ? (esEfectivo ? efectivoHoy : ventasHoy) : acumuladoTotal;
-  const metaMostrada = esDia ? metaDiaria : m.monto;
-  const falta = Math.max(0, metaMostrada - acumulado);
-  const pct = Math.min(100, metaMostrada > 0 ? acumulado / metaMostrada * 100 : 0);
-  const cumplida = esDia ? (metaMostrada <= 0 || acumulado >= metaMostrada) : cumplidaTotal;
+  let html = '';
 
-  // Quita el punto final que el navegador agrega a "ago." (mes corto) —
-  // si no, frases como "hasta el 18-ago." quedan con doble punto al final.
-  const fLimiteTxt = fLimite.toLocaleDateString('es-PE', {day:'2-digit', month:'short'}).replace(/\.$/, '');
-  const fCreacionTxt = fCreacion.toLocaleDateString('es-PE', {day:'2-digit', month:'short'}).replace(/\.$/, '');
+  if(modo === 'dia'){
+    // El ritmo diario se calcula contra la PRÓXIMA parada pendiente (la fecha
+    // más cercana que aún no venció) — así "por día" te dice cuánto necesitas
+    // hoy para no quedarte corto en tu meta más próxima, no en la final.
+    const prox = paradas.find(p => p.fecha >= hoy) || paradas[paradas.length - 1];
+    const acumProx = acumHasta(prox.fecha);
+    const dias = diasHasta(prox.fecha);
+    const faltaProx = Math.max(0, prox.monto - acumProx);
+    const metaDiaria = dias > 0 ? faltaProx / dias : faltaProx;
+    const hoyVal = soloHoy();
+    const cumplida = metaDiaria <= 0 || hoyVal >= metaDiaria;
+    const pct = Math.min(100, metaDiaria > 0 ? Math.max(0, hoyVal / metaDiaria * 100) : 100);
 
-  let html =
-    '<div class="metames-big">' +
-      '<span class="mono">S/ ' + fmt0(acumulado) + '</span>' +
-      '<span class="metames-goal">de S/ ' + fmt0(metaMostrada) + (esDia?' hoy':'') + '</span>' +
-    '</div>' +
-    '<div class="proj-bar"><div class="proj-bar-fill" style="width:' + pct + '%"></div></div>';
-
-  if(esDia){
+    html += '<div class="metames-big"><span class="mono">S/ ' + fmt0(hoyVal) + '</span><span class="metames-goal">de S/ ' + fmt0(metaDiaria) + ' hoy</span></div>' +
+      '<div class="proj-bar"><div class="proj-bar-fill" style="width:' + pct + '%"></div></div>';
     if(cumplida){
-      html += '<div class="metames-note"><span class="ok">✓ Meta de hoy cumplida.</span> Lo que vendas de más ya adelanta el día de mañana.</div>';
+      html += '<div class="metames-note"><span class="ok">✓ Meta de hoy cumplida.</span> Lo de más adelanta el día siguiente.</div>';
     } else {
-      html += '<div class="metames-note">Te faltan <span class="bad">S/ ' + fmt0(falta) + '</span> hoy para ir al ritmo que necesitas.</div>';
+      html += '<div class="metames-note">Te faltan <span class="bad">S/ ' + fmt0(metaDiaria - hoyVal) + '</span> hoy para ir al ritmo que necesitas.</div>';
     }
-    html += '<div class="metames-note">Meta total: S/ ' + fmt0(m.monto) + ' para el ' + fLimiteTxt +
-      ' — llevas S/ ' + fmt0(acumuladoTotal) + (vencida ? '' : ' (' + diasRestantes + ' día(s) restantes)') + '.</div>';
-  } else if(cumplida){
-    html += '<div class="metames-note"><span class="ok">✓ Meta cumplida' +
-      (vencida ? '' : (' — te quedan ' + diasRestantes + ' día(s) hasta el ' + fLimiteTxt)) + '.</span></div>';
-  } else if(vencida){
-    html += '<div class="metames-note"><span class="bad">Venció el ' + fLimiteTxt + '.</span> Te faltaron S/ ' + fmt0(falta) + '.</div>';
+    html += '<div class="metames-note">Ritmo para tu próxima meta: S/ ' + fmt0(prox.monto) + ' al ' + fCorto(prox.fecha) +
+      ' — llevas S/ ' + fmt0(acumProx) + ' (' + dias + ' día(s)).</div>';
   } else {
-    html += '<div class="metames-note">Te faltan <span class="bad">S/ ' + fmt0(falta) + '</span> para el ' + fLimiteTxt +
-      (diasRestantes > 1 ? ' — unos S/ ' + fmt0(metaDiaria) + ' por día (' + diasRestantes + ' días restantes).' : ' — hoy es el último día.') + '</div>';
+    // Un objetivo con fecha: un hito ("hasta tal día") o la meta total.
+    let target;
+    if(modo.indexOf('hito:') === 0){
+      const h = hitos.find(x => 'hito:' + x.fechaISO === modo);
+      target = {fecha: h.fecha, monto: h.monto, esTotal: false};
+    } else {
+      target = {fecha: fLimite, monto: m.monto, esTotal: true};
+    }
+    const acum = acumHasta(target.fecha);
+    const dias = diasHasta(target.fecha);
+    const vencida = target.fecha < hoy;
+    const falta = Math.max(0, target.monto - acum);
+    const cumplida = acum >= target.monto;
+    const porDia = dias > 0 ? falta / dias : falta;
+    const pct = Math.min(100, target.monto > 0 ? acum / target.monto * 100 : 0);
+    const fTxt = fCorto(target.fecha);
+
+    html += '<div class="metames-big"><span class="mono">S/ ' + fmt0(acum) + '</span><span class="metames-goal">de S/ ' + fmt0(target.monto) + (target.esTotal ? '' : ' al ' + fTxt) + '</span></div>' +
+      '<div class="proj-bar"><div class="proj-bar-fill" style="width:' + pct + '%"></div></div>';
+    if(cumplida){
+      html += '<div class="metames-note"><span class="ok">✓ ' + (target.esTotal ? 'Meta cumplida' : 'Meta del ' + fTxt + ' cumplida') +
+        (vencida ? '' : ' — te quedan ' + dias + ' día(s)') + '.</span></div>';
+    } else if(vencida){
+      html += '<div class="metames-note"><span class="bad">Venció el ' + fTxt + '.</span> Te faltaron S/ ' + fmt0(falta) + '.</div>';
+    } else {
+      html += '<div class="metames-note">Te faltan <span class="bad">S/ ' + fmt0(falta) + '</span> para el ' + fTxt +
+        (dias > 1 ? ' — unos S/ ' + fmt0(porDia) + ' por día (' + dias + ' días).' : ' — hoy es el último día.') + '</div>';
+    }
   }
 
   if(esEfectivo){
-    html += '<div class="metames-note">Desde que creaste esta meta (' + fCreacionTxt + '): vendiste S/ ' + fmt0(ventasAcum) +
-      ' y gastaste S/ ' + fmt0(gastosAcum) + ' (todo lo registrado en tu app de gastos, incluida mercadería nueva) → efectivo S/ ' + fmt0(efectivoAcum) + '.</div>';
-
+    const ventasTot = detVentas.reduce((s,v) => s + v.venta, 0);
+    const gastosTot = gastosIncluidos.reduce((s,g) => s + g.monto, 0);
+    html += '<div class="metames-note">Desde que creaste la meta (' + fCorto(fCreacion) + '): vendiste S/ ' + fmt0(ventasTot) +
+      ' y gastaste S/ ' + fmt0(gastosTot) + ' (todo lo de tu app de gastos, incluida mercadería) → efectivo S/ ' + fmt0(ventasTot - gastosTot) + '.</div>';
     if(gastosPeriodo.length > 0){
       html += '<div class="mpg-head">Gastos de este período — destilda los que hiciste ANTES de crear la meta:</div>' +
         '<div class="mpg-list" id="metaPersoGastosList">' +
@@ -874,6 +908,8 @@ function renderMetaPerso(data){
   }
 }
 
+const MP_HITOS_MAX = 5;
+
 function renderMetaPersoForm(m){
   return '<div class="compra-form">' +
     '<label class="cf-label">Monto objetivo (S/)</label>' +
@@ -881,6 +917,12 @@ function renderMetaPersoForm(m){
     '<label class="cf-label">Fecha límite</label>' +
     '<input type="date" class="cf-input" id="mpFecha" value="' + esc((m&&m.fechaLimite)||'') + '">' +
     '<div class="cf-estado-hint">Las ventas y gastos se cuentan desde que guardes esta meta (hoy), no desde antes.</div>' +
+
+    '<label class="cf-label">Metas intermedias (opcional)</label>' +
+    '<div class="cf-estado-hint">Ej. "S/ 400 para el 15" y "S/ 600 para el 18", camino a tu meta final. Se ven como pestañitas extra (→ 15-ago, → 18-ago) junto a "Por día" y "Meta total".</div>' +
+    '<div id="mpHitosList"></div>' +
+    '<button type="button" class="cf-add-btn" id="mpHitoAdd">+ Agregar meta intermedia</button>' +
+
     '<div class="cf-actions">' +
       (m ? '<button type="button" class="cf-btn cf-btn-danger" id="mpBorrar">Borrar meta</button>' : '') +
       '<button type="button" class="cf-btn cf-btn-primary" id="mpGuardar">Guardar</button>' +
@@ -888,14 +930,52 @@ function renderMetaPersoForm(m){
   '</div>';
 }
 
+function renderHitoRowHtml(fecha, monto){
+  return '<div class="mp-hito-row">' +
+    '<input type="date" class="cf-input mp-hito-fecha" value="' + esc(fecha||'') + '">' +
+    '<input type="text" inputmode="decimal" class="cf-input mp-hito-monto" placeholder="S/" value="' + esc(monto||'') + '">' +
+    '<button type="button" class="cf-prod-del mp-hito-del">×</button>' +
+  '</div>';
+}
+
 function openMetaPersoForm(){
   const m = leerMetaPerso();
   openFullscreen(m ? 'Editar meta personalizada' : 'Nueva meta personalizada', renderMetaPersoForm(m));
+
+  const hitosList = document.getElementById('mpHitosList');
+  const addBtn = document.getElementById('mpHitoAdd');
+  const actualizarBotonHito = () => {
+    const n = hitosList.querySelectorAll('.mp-hito-row').length;
+    addBtn.style.display = n >= MP_HITOS_MAX ? 'none' : '';
+  };
+  // Precarga los hitos guardados (si edita una meta existente).
+  if(m && m.hitos && m.hitos.length){
+    hitosList.innerHTML = m.hitos.map(h => renderHitoRowHtml(h.fecha, h.monto)).join('');
+  }
+  hitosList.querySelectorAll('.mp-hito-del').forEach(btn => {
+    btn.onclick = () => { btn.closest('.mp-hito-row').remove(); actualizarBotonHito(); };
+  });
+  actualizarBotonHito();
+
+  addBtn.addEventListener('click', () => {
+    if(hitosList.querySelectorAll('.mp-hito-row').length >= MP_HITOS_MAX) return;
+    const div = document.createElement('div');
+    div.innerHTML = renderHitoRowHtml('', '');
+    const row = div.firstElementChild;
+    row.querySelector('.mp-hito-del').onclick = () => { row.remove(); actualizarBotonHito(); };
+    hitosList.appendChild(row);
+    actualizarBotonHito();
+  });
+
   document.getElementById('mpGuardar').addEventListener('click', () => {
     const monto = Number(document.getElementById('mpMonto').value) || 0;
     const fechaLimite = document.getElementById('mpFecha').value;
     if(monto <= 0 || !fechaLimite){ alert('Pon un monto y una fecha límite.'); return; }
-    guardarMetaPerso({ monto, fechaLimite, fechaCreacion: todayISO() });
+    const hitos = [...hitosList.querySelectorAll('.mp-hito-row')].map(row => ({
+      fecha: row.querySelector('.mp-hito-fecha').value,
+      monto: Number(row.querySelector('.mp-hito-monto').value) || 0,
+    })).filter(h => h.fecha && h.monto > 0);
+    guardarMetaPerso({ monto, fechaLimite, fechaCreacion: (m && m.fechaCreacion) || todayISO(), hitos, excluidos: (m && m.excluidos) || [] });
     closeFullscreen();
     if(LAST) renderMetaPerso(LAST.data);
   });

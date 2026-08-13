@@ -242,6 +242,11 @@ h1{
    caben en una fila, se envuelven en 2. */
 .seg-prov-toggle{display:flex;flex-wrap:wrap;width:100%;gap:2px;}
 .seg-prov-toggle button{flex:1 1 auto;padding:6px 8px;}
+
+/* Meta personalizada: hasta 7 botones (Por día + hasta 5 hitos + Meta total) —
+   se envuelven en varias filas en vez de desbordar. */
+#metaPersoModoToggle{display:flex;flex-wrap:wrap;width:100%;gap:3px;}
+#metaPersoModoToggle button{flex:0 0 auto;padding:6px 9px;}
 .r-row .r-amt.plus{color:var(--ok);}
 .r-row .r-amt.minus{color:var(--bad);}
 
@@ -940,6 +945,11 @@ h1{
   align-self:flex-start;background:none;border:1px dashed var(--line);color:var(--accent);
   font-size:12px;font-weight:700;padding:8px 14px;border-radius:9px;cursor:pointer;margin-top:2px;
 }
+
+/* Meta personalizada: filas de metas intermedias ("hasta tal día") en el formulario. */
+.mp-hito-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;}
+.mp-hito-row .mp-hito-fecha{flex:1.2;min-width:0;}
+.mp-hito-row .mp-hito-monto{flex:1;min-width:0;}
 
 .cf-proyeccion{
   margin-top:16px;background:var(--chip);border:1px solid var(--line);
