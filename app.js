@@ -320,6 +320,54 @@ function esNegocio(categoria, nota){
   return normName(nota||'').indexOf('sunat') !== -1;
 }
 
+// Cashback: retiros de la tarjeta de Alberto, registrados en la app "Mis
+// Gastos - Personal" (?action=cashback, en vivo — igual que Compras/Seguimiento).
+// Se cargan aparte del ciclo normal de datos, no vienen en el CSV de Gastos.
+let cashback = [];
+function loadCashback(){
+  if(!cfg.WEBHOOK_URL) return;
+  fetch(cfg.WEBHOOK_URL + '?action=cashback&_cb=' + Date.now(), {cache:'no-store'})
+    .then(r => r.json())
+    .then(resp => {
+      cashback = ((resp && resp.cashback) ? resp.cashback : []).map(c => ({
+        date: parseDateSmart(c.date), amount: Number(c.amount)||0, note: c.note||'',
+      })).filter(c => c.date && c.amount > 0);
+      if(LAST) renderHero(LAST.ventas, LAST.gastos, LAST.data, selectedMonthKey);
+    })
+    .catch(() => {});
+}
+
+// Cuánto cashback "recupera" cada mes, por mes calendario — mismo modelo FIFO
+// que la app de gastos, para que los números calcen entre las dos apps:
+// el cashback es plata recuperada que baja tus gastos PERSONALES (nunca los
+// de negocio), consumida cronológicamente y SOLO HACIA ADELANTE — un retiro
+// cubre los gastos personales que pasan DESPUÉS de esa fecha, hasta agotar
+// el crédito (puede cruzar de un mes a otro). "Personal" = lo mismo que ya
+// usa el dashboard en todos lados: !esNegocio(...) (Inversión ya está fuera
+// de `gastos`, ver getGastos).
+function getCashbackUsadoPorMes(gastos, cashbackList){
+  const eventos = [];
+  gastos.forEach(g => { if(!esNegocio(g.categoria, g.nota)) eventos.push({date:g.date, monto:g.monto, esCashback:false}); });
+  cashbackList.forEach(c => eventos.push({date:c.date, monto:c.amount, esCashback:true}));
+  eventos.sort((a,b) => a.date - b.date);
+
+  let credito = 0;
+  const usadoPorMes = {};
+  eventos.forEach(ev => {
+    if(ev.esCashback){
+      credito += ev.monto;
+    } else {
+      const usar = Math.min(credito, ev.monto);
+      credito -= usar;
+      if(usar > 0){
+        const k = monthKey(ev.date);
+        usadoPorMes[k] = (usadoPorMes[k] || 0) + usar;
+      }
+    }
+  });
+  return usadoPorMes;
+}
+
 // Modo de la utilidad: 'negocio' (solo gastos de negocio) o 'todo' (también personales).
 let utilMode = 'negocio';
 try{ utilMode = localStorage.getItem('timeless_util_mode') || 'negocio'; }catch(e){}
@@ -1544,9 +1592,16 @@ function renderHero(ventas, gastos, data, mk){
   const gastosOtrosNegocio = gastosNegocio - gastosAds - gastosMateriales;
   const inversion = sumInversion(data, k);
 
-  // Modo "negocio": solo gastos de negocio. Modo "todo": también los personales.
+  // Cashback recuperado este mes contra los gastos personales (FIFO cronológico
+  // sobre TODO el historial, no solo este mes — un retiro de mayo puede seguir
+  // cubriendo gastos de junio). Nunca toca el lado de negocio.
+  const cashbackRecuperado = getCashbackUsadoPorMes(gastos, cashback)[k] || 0;
+  const gastosPersonalNeto = Math.max(0, gastosPersonal - cashbackRecuperado);
+
+  // Modo "negocio": solo gastos de negocio. Modo "todo": también los personales
+  // (netos de cashback recuperado).
   const utilidad = (utilMode === 'todo')
-    ? gananciaNeta - gastosNegocio - gastosPersonal
+    ? gananciaNeta - gastosNegocio - gastosPersonalNeto
     : gananciaNeta - gastosNegocio;
 
   document.getElementById('heroMonthLabel').textContent =
@@ -1567,6 +1622,9 @@ function renderHero(ventas, gastos, data, mk){
   ];
   if(utilMode === 'todo'){
     rows.push({name:'Gastos personales', amt:-gastosPersonal, sign:'-'});
+    if(cashbackRecuperado > 0){
+      rows.push({name:'↳ Recuperado de cashback', amt:cashbackRecuperado, sign:'+', faint:true});
+    }
   }
   rows.push({name: (utilMode==='todo' ? 'LO QUE ME QUEDA' : 'UTILIDAD DEL NEGOCIO'), amt:utilidad, total:true});
   if(inversion > 0){
@@ -3467,3 +3525,4 @@ loadCompras();
 loadInstagram();
 loadSeguimiento();
 loadAnunciosMeta();
+loadCashback();
