@@ -281,26 +281,38 @@ const CANJE_PALABRAS_CLAVE = [
 const CANJE_CATEGORIAS = ['canjes', 'reposicion', 'reposición'];
 
 // Cuántas unidades de cada producto se regalaron por canje/reposición
-// (categorías de CANJE_CATEGORIAS en Gastos). Primero intenta leer la Nota
-// igual que una venta (nombre exacto, o alias/combo tipo "Anillos Duki" /
-// "A + B"); si la nota es texto libre que no matchea nada así, cae a
-// CANJE_PALABRAS_CLAVE buscando una palabra clave en cualquier parte del
-// texto. No hace falta tocar Stock/Cantidad pedido/Vendidos en tu Excel de
-// Venta_accs para esto: el dashboard resta los canjes él solo en
+// (categorías de CANJE_CATEGORIAS en Gastos). Orden de prioridad para leer
+// la Nota:
+//   1. Nombre exacto (o alias/combo "Anillos Duki" / "A + B") DE UN PRODUCTO
+//      QUE EXISTE en Stocks ahora mismo -> se usa tal cual, pieza por pieza.
+//      Esto es clave si solo regalas UNA pieza de un par (ej. nota =
+//      "Anillo demon wings duki" sola, sin el angel): como el nombre exacto
+//      ya calza con el catálogo, se usa solo ese, sin caer al comodín de
+//      abajo (que SIEMPRE asume el par completo).
+//   2. Si la nota es texto libre que no calza ningún nombre real (ej.
+//      "reposición anillos oxidados cliente"), recién ahí cae a
+//      CANJE_PALABRAS_CLAVE (asume el par completo — útil solo cuando de
+//      verdad regalas ambas piezas).
+// No hace falta tocar Stock/Cantidad pedido/Vendidos en tu Excel de
+// Venta_accs para nada de esto: el dashboard resta los canjes él solo en
 // getPendientesDeStock, así no se distorsiona tu costo unitario.
-function getCanjesPorProducto(gastos){
+function getCanjesPorProducto(gastos, stocks){
+  const catalogo = {};
+  (stocks || []).forEach(s => { catalogo[normProducto(s.producto)] = true; });
+
   const map = {};
   const suma = (nombres) => nombres.forEach(p => {
     const key = normProducto(p);
     if(key) map[key] = (map[key] || 0) + 1;
   });
   gastos.filter(g => CANJE_CATEGORIAS.indexOf(normName(g.categoria)) !== -1).forEach(g => {
+    const piezas = splitCombo(g.nota); // ya maneja "A + B" y alias de combo/producto
+    const todasConocidas = piezas.length > 0 && piezas.every(p => catalogo[normProducto(p)]);
+    if(todasConocidas){ suma(piezas); return; }
     const nota = normName(g.nota);
-    const esAliasOCombo = !!COMBO_ALIAS[nota] || g.nota.indexOf('+') !== -1;
-    if(esAliasOCombo){ suma(splitCombo(g.nota)); return; }
     const regla = CANJE_PALABRAS_CLAVE.find(r => r.rx.test(nota));
     if(regla){ suma(regla.productos); return; }
-    suma(splitCombo(g.nota));
+    suma(piezas);
   });
   return map;
 }
@@ -1684,7 +1696,7 @@ function getStockInvertido(stocks){
 }
 
 function renderProyeccion(ventas, stocks, data, mk, gastos){
-  const canjes = getCanjesPorProducto(gastos || []);
+  const canjes = getCanjesPorProducto(gastos || [], stocks);
   const vendidosHist = getVendidosHistoricoSet(data);
   const extra = document.getElementById('projExtra');
   if(!data.stocks){
@@ -2185,7 +2197,7 @@ function renderStock(stocks, data, gastos){
   // reponerlo, sigue en camino), no tiene sentido decirte que "hay que
   // reponer pronto" — ya lo hiciste. En vez de la alerta, se muestra un check
   // de que ya está repuesto.
-  const canjes = getCanjesPorProducto(gastos || []);
+  const canjes = getCanjesPorProducto(gastos || [], stocks);
   const pendientesSet = {};
   getPendientesDeStock(stocks, canjes).forEach(p => { pendientesSet[normProducto(p.producto)] = true; });
 
@@ -2324,7 +2336,7 @@ function renderAgotadosYPorPedir(stocks, gastos){
 
   // Si ya aparece en "Pedidos por llegar" (ya lo repusiste, sigue en camino),
   // no tiene sentido avisar "se agotó, ¿lo pides?" — sería redundante.
-  const canjes = getCanjesPorProducto(gastos || []);
+  const canjes = getCanjesPorProducto(gastos || [], stocks);
   const pendientesSet = {};
   getPendientesDeStock(stocks, canjes).forEach(p => { pendientesSet[normProducto(p.producto)] = true; });
 
