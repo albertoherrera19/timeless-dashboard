@@ -289,10 +289,14 @@ const CANJE_CATEGORIAS = ['canjes', 'reposicion', 'reposición'];
 //      "Anillo demon wings duki" sola, sin el angel): como el nombre exacto
 //      ya calza con el catálogo, se usa solo ese, sin caer al comodín de
 //      abajo (que SIEMPRE asume el par completo).
-//   2. Si la nota es texto libre que no calza ningún nombre real (ej.
-//      "reposición anillos oxidados cliente"), recién ahí cae a
-//      CANJE_PALABRAS_CLAVE (asume el par completo — útil solo cuando de
-//      verdad regalas ambas piezas).
+//   2. Si la nota es texto libre que no calza ningún nombre real pero sí
+//      dispara un comodín (ej. "reposición anillos oxidados cliente"),
+//      recién ahí cae a CANJE_PALABRAS_CLAVE (asume el par completo — útil
+//      solo cuando de verdad regalas ambas piezas).
+//   3. Si la nota no calza ningún nombre real NI ningún comodín (ej. "envío"
+//      o "delivery" — cosas de Canjes/Reposición que sí son plata real pero
+//      no tienen que ver con ningún producto), se ignora para stock: es
+//      un gasto normal de esa categoría, sin efecto en inventario.
 // No hace falta tocar Stock/Cantidad pedido/Vendidos en tu Excel de
 // Venta_accs para nada de esto: el dashboard resta los canjes él solo en
 // getPendientesDeStock, así no se distorsiona tu costo unitario.
@@ -312,7 +316,8 @@ function getCanjesPorProducto(gastos, stocks){
     const nota = normName(g.nota);
     const regla = CANJE_PALABRAS_CLAVE.find(r => r.rx.test(nota));
     if(regla){ suma(regla.productos); return; }
-    suma(piezas);
+    // Nota genérica que no matchea ningún producto ni comodín (ej. "envío"):
+    // no se resta nada de stock, se ignora para efectos de inventario.
   });
   return map;
 }
