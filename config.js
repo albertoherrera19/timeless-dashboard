@@ -58,5 +58,9 @@ const TIMELESS_CONFIG = {
   // empiece por "materiales" cuenta como negocio (ver esNegocio en app.js).
   // Pasajes va como PERSONAL (los envíos los paga el cliente, no es costo tuyo).
   // "Canjes" = colaboraciones donde regalas producto a cambio de promoción.
-  GASTOS_NEGOCIO: ['Ads', 'Materiales timeless', 'Canjes'],
+  // "Reposición" = repones producto gratis por un problema de calidad/garantía
+  // (distinto de Canjes para poder ver aparte cuánto se va por cada motivo,
+  // pero cuenta igual como negocio y resta igual de "Pedidos por llegar" —
+  // ver CANJE_CATEGORIAS en app.js).
+  GASTOS_NEGOCIO: ['Ads', 'Materiales timeless', 'Canjes', 'Reposición'],
 };

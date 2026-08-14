@@ -272,21 +272,29 @@ const CANJE_PALABRAS_CLAVE = [
   { rx: /anillo/, productos: ['Anillo demon wings duki', 'Anillo angel wings duki'] },
 ];
 
-// Cuántas unidades de cada producto se regalaron por canje (categoría
-// "Canjes" en Gastos). Primero intenta leer la Nota igual que una venta
-// (nombre exacto, o alias/combo tipo "Anillos Duki" / "A + B"); si la nota es
-// texto libre que no matchea nada así, cae a CANJE_PALABRAS_CLAVE buscando
-// una palabra clave en cualquier parte del texto. No hace falta tocar
-// Stock/Cantidad pedido/Vendidos en tu Excel de Venta_accs para esto: el
-// dashboard resta los canjes él solo en getPendientesDeStock, así no se
-// distorsiona tu costo unitario.
+// Categorías de Gastos que significan "le regalé producto a alguien, sin
+// venta" — mismo mecanismo de resta en Pedidos por llegar sin importar el
+// motivo (marketing vs. reponer algo por calidad/garantía), solo cambia la
+// etiqueta para que Alberto pueda ver cuánto se va por cada una en su app de
+// gastos. Si agrega una categoría nueva con el mismo espíritu, solo hay que
+// sumarla acá.
+const CANJE_CATEGORIAS = ['canjes', 'reposicion', 'reposición'];
+
+// Cuántas unidades de cada producto se regalaron por canje/reposición
+// (categorías de CANJE_CATEGORIAS en Gastos). Primero intenta leer la Nota
+// igual que una venta (nombre exacto, o alias/combo tipo "Anillos Duki" /
+// "A + B"); si la nota es texto libre que no matchea nada así, cae a
+// CANJE_PALABRAS_CLAVE buscando una palabra clave en cualquier parte del
+// texto. No hace falta tocar Stock/Cantidad pedido/Vendidos en tu Excel de
+// Venta_accs para esto: el dashboard resta los canjes él solo en
+// getPendientesDeStock, así no se distorsiona tu costo unitario.
 function getCanjesPorProducto(gastos){
   const map = {};
   const suma = (nombres) => nombres.forEach(p => {
     const key = normProducto(p);
     if(key) map[key] = (map[key] || 0) + 1;
   });
-  gastos.filter(g => normName(g.categoria) === 'canjes').forEach(g => {
+  gastos.filter(g => CANJE_CATEGORIAS.indexOf(normName(g.categoria)) !== -1).forEach(g => {
     const nota = normName(g.nota);
     const esAliasOCombo = !!COMBO_ALIAS[nota] || g.nota.indexOf('+') !== -1;
     if(esAliasOCombo){ suma(splitCombo(g.nota)); return; }
@@ -1647,7 +1655,7 @@ function renderHero(ventas, gastos, data, mk){
           '<div class="r-row faint sub"><span class="r-name">↳ Ads</span><span class="r-amt">S/ ' + fmt(gastosAds) + '</span></div>' +
           '<div class="r-row faint sub"><span class="r-name">↳ Materiales</span><span class="r-amt">S/ ' + fmt(gastosMateriales) + '</span></div>';
         if(gastosOtrosNegocio > 0){
-          html += '<div class="r-row faint sub"><span class="r-name">↳ Otros (Sunat, canjes)</span><span class="r-amt">S/ ' + fmt(gastosOtrosNegocio) + '</span></div>';
+          html += '<div class="r-row faint sub"><span class="r-name">↳ Otros (Sunat, canjes, reposición)</span><span class="r-amt">S/ ' + fmt(gastosOtrosNegocio) + '</span></div>';
         }
       }
       return html;
