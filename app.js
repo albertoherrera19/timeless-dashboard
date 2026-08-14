@@ -858,9 +858,12 @@ function renderMetaPerso(data){
   const detVentas = data.ventasDetalle
     ? getVentasDetalle(data).filter(v => v.date >= fCreacion && v.date <= fLimite)
     : [];
+  // Canjes/Reposición no son plata nueva que sale de tu bolsillo (el producto
+  // ya estaba pagado como "Materiales" cuando lo compraste) — contarlos aquí
+  // sería restar el mismo gasto dos veces, así que no entran al efectivo.
   const gastosPeriodo = body(data.gastos)
     .map(r => ({id: String(r[0]||''), date: parseDateSmart(r[1]), categoria: (r[2]||'').trim(), monto: parseMoney(r[3]), nota: (r[4]||'').trim()}))
-    .filter(g => g.id && g.date && g.monto > 0 && g.date >= fCreacion && g.date <= hoy)
+    .filter(g => g.id && g.date && g.monto > 0 && g.date >= fCreacion && g.date <= hoy && CANJE_CATEGORIAS.indexOf(normName(g.categoria)) === -1)
     .sort((a,b) => b.date - a.date);
   const gastosIncluidos = gastosPeriodo.filter(g => excluidos.indexOf(g.id) === -1);
 
@@ -895,18 +898,36 @@ function renderMetaPerso(data){
     const faltaProx = Math.max(0, prox.monto - acumProx);
     const metaDiaria = dias > 0 ? faltaProx / dias : faltaProx;
     const hoyVal = soloHoy();
-    const cumplida = metaDiaria <= 0 || hoyVal >= metaDiaria;
-    const pct = Math.min(100, metaDiaria > 0 ? Math.max(0, hoyVal / metaDiaria * 100) : 100);
 
-    html += '<div class="metames-big"><span class="mono">S/ ' + fmt0(hoyVal) + '</span><span class="metames-goal">de S/ ' + fmt0(metaDiaria) + ' hoy</span></div>' +
-      '<div class="proj-bar"><div class="proj-bar-fill" style="width:' + pct + '%"></div></div>';
-    if(cumplida){
-      html += '<div class="metames-note"><span class="ok">✓ Meta de hoy cumplida.</span> Lo de más adelanta el día siguiente.</div>';
+    if(faltaProx <= 0){
+      // Tu próxima parada ya está cubierta (incluidas ventas ya comprometidas
+      // a futuro) — mostrar "S/0 hoy" no dice nada útil. En vez de eso, se
+      // muestra el ritmo diario que hace falta para la meta TOTAL final.
+      const acumFinal = acumHasta(fLimite);
+      const diasFinal = diasHasta(fLimite);
+      const faltaFinal = Math.max(0, m.monto - acumFinal);
+      const porDiaFinal = diasFinal > 0 ? faltaFinal / diasFinal : faltaFinal;
+      const esProxFinal = prox.fecha.getTime() === fLimite.getTime();
+      html += '<div class="metames-note"><span class="ok">✓ Ya cubriste tu meta' + (esProxFinal ? '' : ' del ' + fCorto(prox.fecha)) + ' con lo vendido (incluidas ventas ya comprometidas).</span></div>';
+      if(faltaFinal <= 0){
+        html += '<div class="metames-big"><span class="mono">✓</span><span class="metames-goal">meta total S/ ' + fmt0(m.monto) + ' cubierta</span></div>';
+      } else {
+        html += '<div class="metames-big"><span class="mono">S/ ' + fmt0(porDiaFinal) + '</span><span class="metames-goal">por día para la meta total (' + fCorto(fLimite) + ')</span></div>';
+        html += '<div class="metames-note">Te faltan S/ ' + fmt0(faltaFinal) + ' para el ' + fCorto(fLimite) + '.</div>';
+      }
     } else {
-      html += '<div class="metames-note">Te faltan <span class="bad">S/ ' + fmt0(metaDiaria - hoyVal) + '</span> hoy para ir al ritmo que necesitas.</div>';
+      const cumplida = hoyVal >= metaDiaria;
+      const pct = Math.min(100, metaDiaria > 0 ? Math.max(0, hoyVal / metaDiaria * 100) : 100);
+      html += '<div class="metames-big"><span class="mono">S/ ' + fmt0(hoyVal) + '</span><span class="metames-goal">de S/ ' + fmt0(metaDiaria) + ' hoy</span></div>' +
+        '<div class="proj-bar"><div class="proj-bar-fill" style="width:' + pct + '%"></div></div>';
+      if(cumplida){
+        html += '<div class="metames-note"><span class="ok">✓ Meta de hoy cumplida.</span> Lo de más adelanta el día siguiente.</div>';
+      } else {
+        html += '<div class="metames-note">Te faltan <span class="bad">S/ ' + fmt0(metaDiaria - hoyVal) + '</span> hoy para ir al ritmo que necesitas.</div>';
+      }
+      html += '<div class="metames-note">Ritmo para tu próxima meta: S/ ' + fmt0(prox.monto) + ' al ' + fCorto(prox.fecha) +
+        ' — llevas S/ ' + fmt0(acumProx) + ' (' + dias + ' día(s)).</div>';
     }
-    html += '<div class="metames-note">Ritmo para tu próxima meta: S/ ' + fmt0(prox.monto) + ' al ' + fCorto(prox.fecha) +
-      ' — llevas S/ ' + fmt0(acumProx) + ' (' + dias + ' día(s)).</div>';
   } else {
     // Un objetivo con fecha: un hito ("hasta tal día") o la meta total.
     let target;
@@ -938,34 +959,30 @@ function renderMetaPerso(data){
     }
   }
 
+  // Solo los gastos del MISMO día que creaste la meta son ambiguos (pudiste
+  // crearla a media tarde, y algo de esa mañana no debería contar) — esos son
+  // los únicos que se muestran para revisar por defecto. Los días siguientes
+  // ya cuentan solos, sin pedirte que los repases cada vez.
+  const gastosCreacionDia = gastosPeriodo.filter(g => dayKey(g.date) === dayKey(fCreacion));
+
   if(esEfectivo){
     const ventasTot = detVentas.reduce((s,v) => s + v.venta, 0);
     const gastosTot = gastosIncluidos.reduce((s,g) => s + g.monto, 0);
     html += '<div class="metames-note">Desde que creaste la meta (' + fCorto(fCreacion) + '): vendiste S/ ' + fmt0(ventasTot) +
       ' y gastaste S/ ' + fmt0(gastosTot) + ' (todo lo de tu app de gastos, incluida mercadería) → efectivo S/ ' + fmt0(ventasTot - gastosTot) + '.</div>';
+    if(gastosCreacionDia.length > 0){
+      html += '<div class="mpg-head">Gastos del ' + fCorto(fCreacion) + ' (día que creaste la meta) — destilda los que hiciste ANTES de crearla:</div>' +
+        '<div class="mpg-list" id="metaPersoGastosList">' + gastosCreacionDia.map(g => mpgRowHtml(g, excluidos)).join('') + '</div>';
+    }
     if(gastosPeriodo.length > 0){
-      html += '<div class="mpg-head">Gastos de este período — destilda los que hiciste ANTES de crear la meta:</div>' +
-        '<div class="mpg-list" id="metaPersoGastosList">' +
-          gastosPeriodo.map(g => {
-            const checked = excluidos.indexOf(g.id) === -1;
-            return '<label class="mpg-row' + (checked?'':' excluido') + '">' +
-              '<input type="checkbox" data-id="' + esc(g.id) + '" ' + (checked?'checked':'') + '>' +
-              '<span class="mpg-info">' +
-                '<span class="mpg-cat">' + esc(g.categoria) + (g.nota?' · '+esc(g.nota):'') + '</span>' +
-                '<span class="mpg-fecha">' + fmtDateShort(g.date) + '</span>' +
-              '</span>' +
-              '<span class="mpg-monto mono">S/ ' + fmt(g.monto) + '</span>' +
-            '</label>';
-          }).join('') +
-        '</div>';
+      html += '<button type="button" class="cf-add-btn" id="metaPersoVerGastosBtn">Ver todos los gastos del período (' + gastosPeriodo.length + ')</button>';
     }
   }
 
   box.innerHTML = html;
 
-  const gastosList = document.getElementById('metaPersoGastosList');
-  if(gastosList){
-    gastosList.querySelectorAll('input[type=checkbox]').forEach(cb => {
+  const wireGastosCheckboxes = (root) => {
+    root.querySelectorAll('input[type=checkbox]').forEach(cb => {
       cb.addEventListener('change', () => {
         const id = cb.getAttribute('data-id');
         const mNow = leerMetaPerso();
@@ -973,10 +990,37 @@ function renderMetaPerso(data){
         let excl = mNow.excluidos || [];
         excl = cb.checked ? excl.filter(x => x !== id) : (excl.indexOf(id) === -1 ? excl.concat([id]) : excl);
         guardarMetaPerso(Object.assign({}, mNow, {excluidos: excl}));
+        cb.closest('.mpg-row').classList.toggle('excluido', !cb.checked);
         if(LAST) renderMetaPerso(LAST.data);
       });
     });
+  };
+
+  const gastosList = document.getElementById('metaPersoGastosList');
+  if(gastosList) wireGastosCheckboxes(gastosList);
+
+  const verGastosBtn = document.getElementById('metaPersoVerGastosBtn');
+  if(verGastosBtn){
+    verGastosBtn.addEventListener('click', () => {
+      const mNow = leerMetaPerso();
+      const excl = (mNow && mNow.excluidos) || [];
+      openFullscreen('Gastos del período', '<div class="mpg-list" id="metaPersoGastosFsList">' +
+        gastosPeriodo.map(g => mpgRowHtml(g, excl)).join('') + '</div>');
+      wireGastosCheckboxes(document.getElementById('metaPersoGastosFsList'));
+    });
   }
+}
+
+function mpgRowHtml(g, excluidos){
+  const checked = excluidos.indexOf(g.id) === -1;
+  return '<label class="mpg-row' + (checked?'':' excluido') + '">' +
+    '<input type="checkbox" data-id="' + esc(g.id) + '" ' + (checked?'checked':'') + '>' +
+    '<span class="mpg-info">' +
+      '<span class="mpg-cat">' + esc(g.categoria) + (g.nota?' · '+esc(g.nota):'') + '</span>' +
+      '<span class="mpg-fecha">' + fmtDateShort(g.date) + '</span>' +
+    '</span>' +
+    '<span class="mpg-monto mono">S/ ' + fmt(g.monto) + '</span>' +
+  '</label>';
 }
 
 const MP_HITOS_MAX = 5;
@@ -2738,7 +2782,7 @@ function renderSeguimientoForm(s){
       (editando ? '<button type="button" class="cf-btn cf-btn-danger" id="segEliminar">Eliminar</button>' : '') +
       '<button type="button" class="cf-btn cf-btn-primary" id="segGuardar">Guardar</button>' +
     '</div>' +
-    (editando ? '<button type="button" class="cf-btn cf-btn-arch" id="segArchivar">✓ Archivar (ya llegó / no seguir)</button>' : '') +
+    (editando ? '<button type="button" class="cf-btn cf-btn-arch" id="segArchivar">✓ Ya llegó — quitar de la lista</button>' : '') +
   '</div>';
 }
 
@@ -2775,7 +2819,7 @@ function wireSeguimientoForm(s){
   });
   if(linkInput) linkInput.addEventListener('input', actualizarProvUI);
 
-  const guardar = (archivar) => {
+  const guardar = () => {
     const tracking = document.getElementById('segTracking').value.trim();
     if(!tracking){ alert('Pega el número de tracking.'); return; }
     const paquete = {
@@ -2786,31 +2830,39 @@ function wireSeguimientoForm(s){
       fechaPedido: document.getElementById('segFecha').value || '',
       link: document.getElementById('segLink').value.trim(),
       proveedor: proveedorSel,
-      archivado: archivar ? true : (s ? s.archivado : false),
+      archivado: s ? s.archivado : false,
     };
-    const btn = document.getElementById(archivar ? 'segArchivar' : 'segGuardar');
+    const btn = document.getElementById('segGuardar');
     if(btn){ btn.disabled = true; btn.textContent = 'Guardando…'; }
     fetch(cfg.WEBHOOK_URL, {
       method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify({type:'seguimientoGuardar', paquete})
     }).then(r => r.json()).then(resp => {
       if(resp.ok){ closeFullscreen(); loadSeguimiento(); }
-      else { alert('⚠ ' + (resp.error||'No se pudo guardar')); if(btn){ btn.disabled=false; btn.textContent = archivar?'✓ Archivar (ya llegó)':'Guardar'; } }
-    }).catch(() => { alert('⚠ Error de conexión.'); if(btn){ btn.disabled=false; btn.textContent = archivar?'✓ Archivar (ya llegó)':'Guardar'; } });
+      else { alert('⚠ ' + (resp.error||'No se pudo guardar')); if(btn){ btn.disabled=false; btn.textContent = 'Guardar'; } }
+    }).catch(() => { alert('⚠ Error de conexión.'); if(btn){ btn.disabled=false; btn.textContent = 'Guardar'; } });
   };
-  document.getElementById('segGuardar').addEventListener('click', () => guardar(false));
-  const arch = document.getElementById('segArchivar');
-  if(arch) arch.addEventListener('click', () => guardar(true));
-  const del = document.getElementById('segEliminar');
-  if(del) del.addEventListener('click', () => {
-    if(!confirm('¿Eliminar este pedido del seguimiento? (no se puede deshacer)')) return;
+  const eliminar = (btnId) => {
+    const btn = document.getElementById(btnId);
+    if(btn){ btn.disabled = true; btn.textContent = 'Quitando…'; }
     fetch(cfg.WEBHOOK_URL, {
       method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify({type:'seguimientoEliminar', id:s.id})
     }).then(r => r.json()).then(resp => {
       if(resp.ok){ closeFullscreen(); loadSeguimiento(); }
-      else alert('⚠ ' + (resp.error||'No se pudo eliminar'));
-    }).catch(() => alert('⚠ Error de conexión.'));
+      else { alert('⚠ ' + (resp.error||'No se pudo eliminar')); if(btn){ btn.disabled=false; btn.textContent = btnId==='segArchivar'?'✓ Ya llegó — quitar de la lista':'Eliminar'; } }
+    }).catch(() => { alert('⚠ Error de conexión.'); if(btn){ btn.disabled=false; btn.textContent = btnId==='segArchivar'?'✓ Ya llegó — quitar de la lista':'Eliminar'; } });
+  };
+  document.getElementById('segGuardar').addEventListener('click', guardar);
+  // "Ya llegó" ya no archiva (eso solo hacía crecer una lista de archivados
+  // que Alberto nunca usa): directamente borra el pedido del seguimiento,
+  // igual que el botón Eliminar — un toque y desaparece.
+  const arch = document.getElementById('segArchivar');
+  if(arch) arch.addEventListener('click', () => eliminar('segArchivar'));
+  const del = document.getElementById('segEliminar');
+  if(del) del.addEventListener('click', () => {
+    if(!confirm('¿Eliminar este pedido del seguimiento? (no se puede deshacer)')) return;
+    eliminar('segEliminar');
   });
 }
 
