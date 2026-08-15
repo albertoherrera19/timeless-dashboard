@@ -894,33 +894,32 @@ function renderMetaPerso(data){
   let html = '';
 
   if(modo === 'dia'){
-    // El ritmo diario se calcula contra la PRÓXIMA parada pendiente (la fecha
-    // más cercana que aún no venció) — así "por día" te dice cuánto necesitas
-    // hoy para no quedarte corto en tu meta más próxima, no en la final.
-    const prox = paradas.find(p => p.fecha >= hoy) || paradas[paradas.length - 1];
-    const acumProx = acumHasta(prox.fecha);
-    const dias = diasHasta(prox.fecha);
-    const faltaProx = Math.max(0, prox.monto - acumProx);
-    const metaDiaria = dias > 0 ? faltaProx / dias : faltaProx;
-    const hoyVal = soloHoy();
+    // La parada activa es la primera (desde hoy en adelante, en orden de
+    // calendario) que TODAVÍA no está cubierta con lo acumulado (incluidas
+    // ventas ya comprometidas a futuro). Si una ya se cubrió, se salta a la
+    // siguiente de la fila (un hito intermedio, o al final la meta total) —
+    // así encadena varios hitos en vez de saltar directo a la meta final.
+    const idxDesde = paradas.findIndex(p => p.fecha >= hoy);
+    const restantes = idxDesde === -1 ? [paradas[paradas.length - 1]] : paradas.slice(idxDesde);
+    const target = restantes.find(p => acumHasta(p.fecha) < p.monto);
+    const cubiertas = target ? restantes.slice(0, restantes.indexOf(target)) : restantes;
 
-    if(faltaProx <= 0){
-      // Tu próxima parada ya está cubierta (incluidas ventas ya comprometidas
-      // a futuro) — mostrar "S/0 hoy" no dice nada útil. En vez de eso, se
-      // muestra el ritmo diario que hace falta para la meta TOTAL final.
-      const acumFinal = acumHasta(fLimite);
-      const diasFinal = diasHasta(fLimite);
-      const faltaFinal = Math.max(0, m.monto - acumFinal);
-      const porDiaFinal = diasFinal > 0 ? faltaFinal / diasFinal : faltaFinal;
-      const esProxFinal = prox.fecha.getTime() === fLimite.getTime();
-      html += '<div class="metames-note"><span class="ok">✓ Ya cubriste tu meta' + (esProxFinal ? '' : ' del ' + fCorto(prox.fecha)) + ' con lo vendido (incluidas ventas ya comprometidas).</span></div>';
-      if(faltaFinal <= 0){
-        html += '<div class="metames-big"><span class="mono">✓</span><span class="metames-goal">meta total S/ ' + fmt0(m.monto) + ' cubierta</span></div>';
-      } else {
-        html += '<div class="metames-big"><span class="mono">S/ ' + fmt0(porDiaFinal) + '</span><span class="metames-goal">por día para la meta total (' + fCorto(fLimite) + ')</span></div>';
-        html += '<div class="metames-note">Te faltan S/ ' + fmt0(faltaFinal) + ' para el ' + fCorto(fLimite) + '.</div>';
-      }
+    if(cubiertas.length > 0){
+      const ultima = cubiertas[cubiertas.length - 1];
+      const esFinal = ultima.fecha.getTime() === fLimite.getTime();
+      html += '<div class="metames-note"><span class="ok">✓ Ya cubriste ' + (esFinal ? 'tu meta total' : 'tu meta del ' + fCorto(ultima.fecha)) + ' con lo vendido (incluidas ventas ya comprometidas).</span></div>';
+    }
+
+    if(!target){
+      // Todas las paradas, incluida la meta final, ya están cubiertas.
+      html += '<div class="metames-big"><span class="mono">✓</span><span class="metames-goal">meta total S/ ' + fmt0(m.monto) + ' cubierta</span></div>' +
+        '<div class="proj-bar"><div class="proj-bar-fill" style="width:100%"></div></div>';
     } else {
+      const acumTarget = acumHasta(target.fecha);
+      const dias = diasHasta(target.fecha);
+      const falta = Math.max(0, target.monto - acumTarget);
+      const metaDiaria = dias > 0 ? falta / dias : falta;
+      const hoyVal = soloHoy();
       const cumplida = hoyVal >= metaDiaria;
       const pct = Math.min(100, metaDiaria > 0 ? Math.max(0, hoyVal / metaDiaria * 100) : 100);
       html += '<div class="metames-big"><span class="mono">S/ ' + fmt0(hoyVal) + '</span><span class="metames-goal">de S/ ' + fmt0(metaDiaria) + ' hoy</span></div>' +
@@ -930,8 +929,8 @@ function renderMetaPerso(data){
       } else {
         html += '<div class="metames-note">Te faltan <span class="bad">S/ ' + fmt0(metaDiaria - hoyVal) + '</span> hoy para ir al ritmo que necesitas.</div>';
       }
-      html += '<div class="metames-note">Ritmo para tu próxima meta: S/ ' + fmt0(prox.monto) + ' al ' + fCorto(prox.fecha) +
-        ' — llevas S/ ' + fmt0(acumProx) + ' (' + dias + ' día(s)).</div>';
+      html += '<div class="metames-note">Ritmo para tu próxima meta: S/ ' + fmt0(target.monto) + ' al ' + fCorto(target.fecha) +
+        ' — llevas S/ ' + fmt0(acumTarget) + ' (' + dias + ' día(s)).</div>';
     }
   } else {
     // Un objetivo con fecha: un hito ("hasta tal día") o la meta total.
