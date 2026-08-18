@@ -1928,10 +1928,19 @@ function renderPendientes(stocks, canjes, vendidosHist){
   const nombreOriginal = {};
   stocks.forEach(s => { nombreOriginal[normName(s.producto)] = s.producto; });
 
-  // Estaba en la lista pendiente anterior y ya no está en la actual = acaba de llegar.
+  // Estaba en la lista pendiente anterior y ya no está en la actual = acaba de
+  // llegar. Este es un evento REAL observado (no una suposición por huecos de
+  // venta), así que aprovechamos para marcar "recién repuesto" automático
+  // (ver STOCK_REINICIOS_KEY más abajo) — así "días para agotar" no mezcla el
+  // ritmo de antes de este restock con el de ahora, sin el riesgo de falsos
+  // positivos que tenía adivinar por huecos de venta.
   Object.keys(vistosAntes).forEach(k => {
-    if(!nowKeys[k] && !llegados.some(l => l.key === k)){
-      llegados.push({key: k, producto: nombreOriginal[k] || vistosAntes[k], ts: Date.now()});
+    if(!nowKeys[k]){
+      const nombre = nombreOriginal[k] || vistosAntes[k];
+      marcarReinicioRitmo(normProducto(nombre), todayISO());
+      if(!llegados.some(l => l.key === k)){
+        llegados.push({key: k, producto: nombre, ts: Date.now()});
+      }
     }
   });
   const ahora = Date.now();
