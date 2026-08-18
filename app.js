@@ -397,9 +397,11 @@ function getCashbackUsadoPorMes(gastos, cashbackList){
 let utilMode = 'negocio';
 try{ utilMode = localStorage.getItem('timeless_util_mode') || 'negocio'; }catch(e){}
 
-// Desglose Ads/Materiales bajo "Gastos de negocio" — solo abre/cierra, no
-// se guarda entre sesiones (se resetea cerrado cada vez que abres la app).
+// Desglose Ads/Materiales bajo "Gastos de negocio" (y cashback recuperado
+// bajo "Gastos personales") — solo abre/cierra, no se guarda entre sesiones
+// (se resetea cerrado cada vez que abres la app).
 let gastosNegocioAbierto = false;
+let gastosPersonalAbierto = false;
 
 function getPublicidad(data){
   return body(data.publicidad).map(r => ({
@@ -1689,10 +1691,7 @@ function renderHero(ventas, gastos, data, mk){
     {name:'Gastos de negocio (Ads, materiales)', amt:-gastosNegocio, sign:'-', negocioRow:true},
   ];
   if(utilMode === 'todo'){
-    rows.push({name:'Gastos personales', amt:-gastosPersonal, sign:'-'});
-    if(cashbackRecuperado > 0){
-      rows.push({name:'↳ Recuperado de cashback', amt:cashbackRecuperado, sign:'+', faint:true});
-    }
+    rows.push({name:'Gastos personales', amt:-gastosPersonal, sign:'-', personalRow: cashbackRecuperado > 0});
   }
   rows.push({name: (utilMode==='todo' ? 'LO QUE ME QUEDA' : 'UTILIDAD DEL NEGOCIO'), amt:utilidad, total:true});
   if(inversion > 0){
@@ -1704,9 +1703,12 @@ function renderHero(ventas, gastos, data, mk){
     rows.map(r => {
       const cls = r.total ? (r.amt<0?'minus':'') : (r.info ? '' : (r.sign==='+'?'plus':'minus'));
       const prefix = r.amt<0 ? '− ' : (r.sign==='+'&&!r.total ? '+ ' : '');
-      const caret = r.negocioRow ?
-        ' <button type="button" class="r-caret" id="gastosNegocioCaret">' + (gastosNegocioAbierto ? '▾' : '▸') + '</button>' : '';
-      let html = '<div class="r-row' + (r.total ? ' total' : '') + (r.faint ? ' faint' : '') + (r.negocioRow ? ' clickable' : '') + '"' + (r.negocioRow ? ' id="gastosNegocioRow"' : '') + '>' +
+      const clickable = r.negocioRow || r.personalRow;
+      const rowId = r.negocioRow ? ' id="gastosNegocioRow"' : (r.personalRow ? ' id="gastosPersonalRow"' : '');
+      const abierto = r.negocioRow ? gastosNegocioAbierto : gastosPersonalAbierto;
+      const caret = clickable ?
+        ' <button type="button" class="r-caret">' + (abierto ? '▾' : '▸') + '</button>' : '';
+      let html = '<div class="r-row' + (r.total ? ' total' : '') + (r.faint ? ' faint' : '') + (clickable ? ' clickable' : '') + '"' + rowId + '>' +
         '<span class="r-name">' + r.name + caret + '</span>' +
         '<span class="r-amt ' + cls + '">' + prefix + 'S/ ' + fmt(Math.abs(r.amt)) + '</span>' +
       '</div>';
@@ -1717,6 +1719,9 @@ function renderHero(ventas, gastos, data, mk){
         if(gastosOtrosNegocio > 0){
           html += '<div class="r-row faint sub"><span class="r-name">↳ Otros (Sunat, canjes, reposición)</span><span class="r-amt">S/ ' + fmt(gastosOtrosNegocio) + '</span></div>';
         }
+      }
+      if(r.personalRow && gastosPersonalAbierto){
+        html += '<div class="r-row faint sub"><span class="r-name">↳ Recuperado de cashback</span><span class="r-amt plus">+ S/ ' + fmt(cashbackRecuperado) + '</span></div>';
       }
       return html;
     }).join('');
@@ -3525,12 +3530,18 @@ document.getElementById('utilToggle').addEventListener('click', (e) => {
   }
 });
 
-// "Gastos de negocio": flechita para ver el desglose Ads/Materiales sin
-// esconder el total (heroReceipt se re-pinta entero en cada render, por eso
-// se delega el click sobre el contenedor en vez de sobre el botón).
+// "Gastos de negocio"/"Gastos personales": flechita para ver el desglose
+// (Ads/Materiales, o cashback recuperado) sin esconder el total (heroReceipt
+// se re-pinta entero en cada render, por eso se delega el click sobre el
+// contenedor en vez de sobre el botón).
 document.getElementById('heroReceipt').addEventListener('click', (e) => {
-  if(!e.target.closest('#gastosNegocioRow')) return;
-  gastosNegocioAbierto = !gastosNegocioAbierto;
+  if(e.target.closest('#gastosNegocioRow')){
+    gastosNegocioAbierto = !gastosNegocioAbierto;
+  } else if(e.target.closest('#gastosPersonalRow')){
+    gastosPersonalAbierto = !gastosPersonalAbierto;
+  } else {
+    return;
+  }
   if(LAST) renderHero(LAST.ventas, LAST.gastos, LAST.data, selectedMonthKey);
 });
 

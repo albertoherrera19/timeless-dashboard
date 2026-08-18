@@ -202,7 +202,7 @@ h1{
   margin:2px 0 14px;
 }
 .hero-value.neg{color:var(--bad);}
-.hero-value.pos{color:var(--bone);}
+.hero-value.pos{color:var(--ok);}
 .receipt{border-top:1px dashed var(--line);}
 .r-row{
   display:flex;
