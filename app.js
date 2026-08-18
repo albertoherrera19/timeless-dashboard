@@ -512,6 +512,29 @@ function getStocks(data){
   })).filter(s => s.producto && s.producto.toLowerCase() !== 'totales');
 }
 
+// Segunda señal para "recién repuesto" automático (ver marcarReinicioRitmo):
+// el Stock de un producto pasa de 0 a más de 0. Complementa a la de
+// "Pedidos por llegar" (que solo dispara si ANTES registraste el pedido como
+// pendiente) — esta agarra también el caso en que el stock nuevo se anota
+// directo sin haber pasado por "pendiente". Evento real observado (Stock=0
+// es un hecho, no una suposición por huecos de venta), mismo criterio de
+// seguridad que la otra señal.
+const STOCK_ULTIMO_VALOR_KEY = 'timeless_stock_ultimo_valor';
+function detectarRestockPorStock(stocks){
+  let anterior = {};
+  try{ anterior = JSON.parse(localStorage.getItem(STOCK_ULTIMO_VALOR_KEY) || '{}'); }catch(e){}
+  const actual = {};
+  stocks.forEach(s => {
+    const key = normProducto(s.producto);
+    if(!key) return;
+    actual[key] = s.stock;
+    if(anterior[key] === 0 && s.stock > 0){
+      marcarReinicioRitmo(key, todayISO());
+    }
+  });
+  try{ localStorage.setItem(STOCK_ULTIMO_VALOR_KEY, JSON.stringify(actual)); }catch(e){}
+}
+
 /* ---------- Render ---------- */
 function renderAll(data, missing){
   const ventas = getVentas(data);
@@ -519,6 +542,7 @@ function renderAll(data, missing){
   const pub = getPublicidad(data);
   const stocks = getStocks(data);
   LAST = {ventas, gastos, pub, stocks, data};
+  detectarRestockPorStock(stocks);
   buildMonthOptions(ventas, gastos);
   renderHero(ventas, gastos, data, selectedMonthKey);
   renderProyeccion(ventas, stocks, data, selectedMonthKey, gastos);
