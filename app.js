@@ -470,7 +470,8 @@ function splitCombo(nombre){
 
 // Pestaña "VentasDetalle": Fecha, Producto, Venta, Utilidad (cada venta con fecha)
 function getVentasDetalle(data){
-  return body(data.ventasDetalle).map(r => ({
+  return body(data.ventasDetalle).map((r,i) => ({
+    id: 'v' + i,
     date: parseDateSmart(r[0]),
     producto: (r[1]||'').trim(),
     venta: parseMoney(r[2]),
@@ -856,6 +857,7 @@ function renderMetaPerso(data){
   const fLimite = parseDateSmart(m.fechaLimite);
   const fCreacion = parseDateSmart(m.fechaCreacion) || hoy;
   const excluidos = m.excluidos || [];
+  const excluidosVentas = m.excluidosVentas || [];
   const esEfectivo = metaPersoMetrica === 'efectivo';
   const fCorto = d => d.toLocaleDateString('es-PE', {day:'2-digit', month:'short'}).replace(/\.$/, '');
 
@@ -885,10 +887,14 @@ function renderMetaPerso(data){
   // que son ventas reales comprometidas). Gastos: creación → hoy (para poder
   // destildar los de antes de crear la meta). "Efectivo" = ventas − gastos,
   // contando TODOS los gastos (incluida "Inversión"/mercadería): es la plata
-  // real que te queda en mano.
-  const detVentas = data.ventasDetalle
+  // real que te queda en mano. Las ventas del MISMO día que creaste la meta
+  // son igual de ambiguas que los gastos — por defecto cuentan todas, y se
+  // listan abajo para destildar las de antes de crearla.
+  const detVentasPeriodo = data.ventasDetalle
     ? getVentasDetalle(data).filter(v => v.date >= fCreacion && v.date <= fLimite)
     : [];
+  const detVentas = detVentasPeriodo.filter(v => excluidosVentas.indexOf(v.id) === -1);
+  const ventasCreacionDia = detVentasPeriodo.filter(v => dayKey(v.date) === dayKey(fCreacion));
   // Canjes/Reposición no son plata nueva que sale de tu bolsillo (el producto
   // ya estaba pagado como "Materiales" cuando lo compraste) — contarlos aquí
   // sería restar el mismo gasto dos veces, así que no entran al efectivo.
@@ -995,6 +1001,13 @@ function renderMetaPerso(data){
   // ya cuentan solos, sin pedirte que los repases cada vez.
   const gastosCreacionDia = gastosPeriodo.filter(g => dayKey(g.date) === dayKey(fCreacion));
 
+  // Mismo criterio para las ventas del día que creaste la meta: por defecto
+  // cuentan todas, pero se listan para que destildes las de antes de crearla.
+  if(ventasCreacionDia.length > 0){
+    html += '<div class="mpg-head">Ventas del ' + fCorto(fCreacion) + ' (día que creaste la meta) — destilda las que fueron ANTES de crearla:</div>' +
+      '<div class="mpg-list" id="metaPersoVentasList">' + ventasCreacionDia.map(v => mpvRowHtml(v, excluidosVentas)).join('') + '</div>';
+  }
+
   if(esEfectivo){
     const ventasTot = detVentas.reduce((s,v) => s + v.venta, 0);
     const gastosTot = gastosIncluidos.reduce((s,g) => s + g.monto, 0);
@@ -1026,6 +1039,24 @@ function renderMetaPerso(data){
     });
   };
 
+  const wireVentasCheckboxes = (root) => {
+    root.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const id = cb.getAttribute('data-id');
+        const mNow = leerMetaPerso();
+        if(!mNow) return;
+        let excl = mNow.excluidosVentas || [];
+        excl = cb.checked ? excl.filter(x => x !== id) : (excl.indexOf(id) === -1 ? excl.concat([id]) : excl);
+        guardarMetaPerso(Object.assign({}, mNow, {excluidosVentas: excl}));
+        cb.closest('.mpg-row').classList.toggle('excluido', !cb.checked);
+        if(LAST) renderMetaPerso(LAST.data);
+      });
+    });
+  };
+
+  const ventasList = document.getElementById('metaPersoVentasList');
+  if(ventasList) wireVentasCheckboxes(ventasList);
+
   const gastosList = document.getElementById('metaPersoGastosList');
   if(gastosList) wireGastosCheckboxes(gastosList);
 
@@ -1039,6 +1070,18 @@ function renderMetaPerso(data){
       wireGastosCheckboxes(document.getElementById('metaPersoGastosFsList'));
     });
   }
+}
+
+function mpvRowHtml(v, excluidos){
+  const checked = excluidos.indexOf(v.id) === -1;
+  return '<label class="mpg-row' + (checked?'':' excluido') + '">' +
+    '<input type="checkbox" data-id="' + esc(v.id) + '" ' + (checked?'checked':'') + '>' +
+    '<span class="mpg-info">' +
+      '<span class="mpg-cat">' + esc(v.producto) + '</span>' +
+      '<span class="mpg-fecha">' + fmtDateShort(v.date) + '</span>' +
+    '</span>' +
+    '<span class="mpg-monto mono">S/ ' + fmt(v.venta) + '</span>' +
+  '</label>';
 }
 
 function mpgRowHtml(g, excluidos){
@@ -1120,7 +1163,7 @@ function openMetaPersoForm(){
       fecha: row.querySelector('.mp-hito-fecha').value,
       monto: Number(row.querySelector('.mp-hito-monto').value) || 0,
     })).filter(h => h.fecha && h.monto > 0);
-    guardarMetaPerso({ monto, fechaLimite, fechaCreacion: (m && m.fechaCreacion) || todayISO(), hitos, excluidos: (m && m.excluidos) || [] });
+    guardarMetaPerso({ monto, fechaLimite, fechaCreacion: (m && m.fechaCreacion) || todayISO(), hitos, excluidos: (m && m.excluidos) || [], excluidosVentas: (m && m.excluidosVentas) || [] });
     closeFullscreen();
     if(LAST) renderMetaPerso(LAST.data);
   });
