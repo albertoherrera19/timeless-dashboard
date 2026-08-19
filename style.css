@@ -515,6 +515,26 @@ h1{
 .mpg-cat{font-size:12px;color:var(--bone);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .mpg-fecha{font-size:10px;color:var(--muted);}
 .mpg-monto{font-size:12px;font-weight:700;flex-shrink:0;}
+/* "día 0" = movimiento del mismo día en que se creó la meta (ambiguo). */
+.mpg-dia0{color:var(--accent);font-weight:700;margin-left:5px;}
+
+/* Filas-resumen de la tarjeta compacta (Ventas contadas / Gastos contados):
+   abren el detalle a pantalla completa, donde se destilda uno por uno. */
+.mpg-sums{display:flex;flex-direction:column;gap:0;margin-top:12px;border-top:1px dashed var(--line);}
+.mpg-sum{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:9px 2px;border-bottom:1px dashed var(--line);
+}
+.mpg-sum.clickable{cursor:pointer;}
+.mpg-sum.clickable:active{background:var(--accent-dim);}
+.mpg-sum-name{font-size:12px;color:var(--bone);min-width:0;}
+.mpg-sum-amt{font-size:12.5px;font-weight:700;flex-shrink:0;color:var(--bone);}
+.mpg-sum-amt.neg{color:var(--bad);}
+.mpg-fuera{font-size:10px;color:var(--muted);background:var(--chip);border-radius:5px;padding:1px 5px;margin-left:4px;}
+
+/* Detalle de la meta a pantalla completa: el avance queda arriba, fijo. */
+.mp-fs-top{padding-bottom:4px;border-bottom:1px dashed var(--line);margin-bottom:6px;}
+#fsBody .mpg-list{max-height:none;}
 
 /* Mejor día de la semana */
 .dsem-lead{font-size:13px;font-weight:800;color:var(--accent);flex-shrink:0;}

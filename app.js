@@ -839,32 +839,31 @@ if(['ventas','efectivo'].indexOf(metaPersoMetrica) === -1) metaPersoMetrica = 'v
 let metaPersoModo = 'total';
 try{ metaPersoModo = localStorage.getItem('timeless_metaperso_modo') || 'total'; }catch(e){}
 
-// Listas de ventas/gastos del día de creación: colapsadas por defecto para
-// no ocupar espacio; una flechita las despliega.
-let metaPersoVentasAbierto = false;
-let metaPersoGastosAbierto = false;
-
-function renderMetaPerso(data){
-  const box = document.getElementById('metaPersoBody');
-  if(!box) return;
-  const modoToggle = document.getElementById('metaPersoModoToggle');
-  document.querySelectorAll('#metaPersoMetricaToggle button').forEach(b =>
-    b.classList.toggle('active', b.getAttribute('data-metrica') === metaPersoMetrica));
-
+// Todo lo que necesitan tanto la vista compacta como el detalle a pantalla
+// completa: rangos de fechas, ventas/gastos del período y los acumulados.
+// Devuelve null si todavía no hay meta configurada.
+function metaPersoCalc(data){
   const m = leerMetaPerso();
-  if(!m || !m.monto || !m.fechaLimite){
-    if(modoToggle) modoToggle.innerHTML = '';
-    box.innerHTML = '<div class="metames-empty">Aún no tienes una meta personalizada. Toca "✎ Editar meta" para crear una (ej. "S/ 970 para el 20 de agosto").</div>';
-    return;
-  }
+  if(!m || !m.monto || !m.fechaLimite) return null;
 
   const hoy = new Date(); hoy.setHours(0,0,0,0);
   const fLimite = parseDateSmart(m.fechaLimite);
   const fCreacion = parseDateSmart(m.fechaCreacion) || hoy;
+  // Fecha de inicio opcional: si programaste la meta para arrancar más
+  // adelante, nada de antes de ese día cuenta. Por defecto = el día que la
+  // creaste (comportamiento de siempre).
+  const fInicio = parseDateSmart(m.fechaInicio) || fCreacion;
   const excluidos = m.excluidos || [];
   const excluidosVentas = m.excluidosVentas || [];
   const esEfectivo = metaPersoMetrica === 'efectivo';
   const fCorto = d => d.toLocaleDateString('es-PE', {day:'2-digit', month:'short'}).replace(/\.$/, '');
+
+  // Solo hay ambigüedad de "¿esto fue antes o después de crear la meta?" si la
+  // meta arranca el MISMO día en que la creaste (la creaste a media tarde y
+  // hay movimientos de esa mañana). Si la programaste para empezar otro día,
+  // ese día cuenta entero y no hay nada que repasar.
+  const ambiguo = dayKey(fInicio) === dayKey(fCreacion);
+  const noEmpezo = fInicio > hoy;
 
   // Metas intermedias "hasta tal día": válidas, ordenadas por fecha, y solo
   // las que caen ANTES de la fecha límite total (una después no tendría sentido).
@@ -874,38 +873,20 @@ function renderMetaPerso(data){
     .filter(h => h.fecha && h.fecha < fLimite)
     .sort((a,b) => a.fecha - b.fecha);
 
-  // Toggle dinámico: [Por día] [→ cada hito] [Meta total].
-  let togHtml = '<button type="button" data-modo="dia">Por día</button>';
-  hitos.forEach(h => { togHtml += '<button type="button" data-modo="hito:' + esc(h.fechaISO) + '">→ ' + esc(fCorto(h.fecha)) + '</button>'; });
-  togHtml += '<button type="button" data-modo="total">Meta total</button>';
-  if(modoToggle) modoToggle.innerHTML = togHtml;
-
-  // Si el modo apunta a un hito que ya no existe (lo borraste), cae a total.
-  let modo = metaPersoModo;
-  const esHito = modo.indexOf('hito:') === 0;
-  if(esHito && !hitos.some(h => 'hito:' + h.fechaISO === modo)) modo = 'total';
-  else if(!esHito && ['dia','total'].indexOf(modo) === -1) modo = 'total';
-  document.querySelectorAll('#metaPersoModoToggle button').forEach(b =>
-    b.classList.toggle('active', b.getAttribute('data-modo') === modo));
-
-  // Ventas: creación → fecha límite (incluye ventas ya programadas a futuro,
-  // que son ventas reales comprometidas). Gastos: creación → hoy (para poder
-  // destildar los de antes de crear la meta). "Efectivo" = ventas − gastos,
-  // contando TODOS los gastos (incluida "Inversión"/mercadería): es la plata
-  // real que te queda en mano. Las ventas del MISMO día que creaste la meta
-  // son igual de ambiguas que los gastos — por defecto cuentan todas, y se
-  // listan abajo para destildar las de antes de crearla.
+  // Ventas: inicio → fecha límite (incluye ventas ya programadas a futuro,
+  // que son ventas reales comprometidas). Gastos: inicio → hoy. "Efectivo" =
+  // ventas − gastos, contando TODOS los gastos (incluida "Inversión"/
+  // mercadería): es la plata real que te queda en mano.
   const detVentasPeriodo = data.ventasDetalle
-    ? getVentasDetalle(data).filter(v => v.date >= fCreacion && v.date <= fLimite)
+    ? getVentasDetalle(data).filter(v => v.date >= fInicio && v.date <= fLimite).sort((a,b) => b.date - a.date)
     : [];
   const detVentas = detVentasPeriodo.filter(v => excluidosVentas.indexOf(v.id) === -1);
-  const ventasCreacionDia = detVentasPeriodo.filter(v => dayKey(v.date) === dayKey(fCreacion));
   // Canjes/Reposición no son plata nueva que sale de tu bolsillo (el producto
   // ya estaba pagado como "Materiales" cuando lo compraste) — contarlos aquí
   // sería restar el mismo gasto dos veces, así que no entran al efectivo.
   const gastosPeriodo = body(data.gastos)
     .map(r => ({id: String(r[0]||''), date: parseDateSmart(r[1]), categoria: (r[2]||'').trim(), monto: parseMoney(r[3]), nota: (r[4]||'').trim()}))
-    .filter(g => g.id && g.date && g.monto > 0 && g.date >= fCreacion && g.date <= hoy && CANJE_CATEGORIAS.indexOf(normName(g.categoria)) === -1)
+    .filter(g => g.id && g.date && g.monto > 0 && g.date >= fInicio && g.date <= hoy && CANJE_CATEGORIAS.indexOf(normName(g.categoria)) === -1)
     .sort((a,b) => b.date - a.date);
   const gastosIncluidos = gastosPeriodo.filter(g => excluidos.indexOf(g.id) === -1);
 
@@ -922,13 +903,31 @@ function renderMetaPerso(data){
     const g = gastosIncluidos.filter(x => dayKey(x.date) === dayKey(hoy)).reduce((s,x) => s + x.monto, 0);
     return v - g;
   };
-  const diasHasta = (D) => Math.max(0, Math.round((D - hoy) / 86400000) + 1);
+  // Los días que te quedan se cuentan desde que la meta ARRANCA: si la
+  // programaste para mañana, hoy no es un día de venta para ella.
+  const desde = fInicio > hoy ? fInicio : hoy;
+  const diasHasta = (D) => Math.max(0, Math.round((D - desde) / 86400000) + 1);
 
   // Todas las "paradas" (hitos + meta total) ordenadas por fecha.
   const paradas = hitos.map(h => ({fecha: h.fecha, monto: h.monto}))
     .concat([{fecha: fLimite, monto: m.monto}]);
 
+  return {m, hoy, fLimite, fCreacion, fInicio, ambiguo, noEmpezo, excluidos, excluidosVentas,
+    esEfectivo, fCorto, hitos, detVentasPeriodo, detVentas, gastosPeriodo, gastosIncluidos,
+    acumHasta, soloHoy, diasHasta, paradas};
+}
+
+// El bloque de avance (número grande + barra + notas). Se usa igual en la
+// tarjeta compacta y en el detalle a pantalla completa.
+function metaPersoProgresoHtml(c, modo){
+  const {m, hoy, fLimite, fCorto, hitos, acumHasta, soloHoy, diasHasta, paradas} = c;
   let html = '';
+
+  if(c.noEmpezo){
+    const faltanDias = Math.max(1, Math.round((c.fInicio - hoy) / 86400000));
+    html += '<div class="metames-note">📅 <span class="ok">Meta programada:</span> empieza el ' + fCorto(c.fInicio) +
+      ' (en ' + faltanDias + ' día(s)). Nada de antes de esa fecha cuenta.</div>';
+  }
 
   if(modo === 'dia'){
     // La parada activa es la primera (desde hoy en adelante, en orden de
@@ -956,12 +955,14 @@ function renderMetaPerso(data){
       const dias = diasHasta(target.fecha);
       const falta = Math.max(0, target.monto - acumTarget);
       const metaDiaria = dias > 0 ? falta / dias : falta;
-      const hoyVal = soloHoy();
-      const cumplida = hoyVal >= metaDiaria;
+      const hoyVal = c.noEmpezo ? 0 : soloHoy();
+      const cumplida = !c.noEmpezo && hoyVal >= metaDiaria;
       const pct = Math.min(100, metaDiaria > 0 ? Math.max(0, hoyVal / metaDiaria * 100) : 100);
-      html += '<div class="metames-big"><span class="mono">S/ ' + fmt0(hoyVal) + '</span><span class="metames-goal">de S/ ' + fmt0(metaDiaria) + ' hoy</span></div>' +
+      html += '<div class="metames-big"><span class="mono">S/ ' + fmt0(hoyVal) + '</span><span class="metames-goal">de S/ ' + fmt0(metaDiaria) + (c.noEmpezo ? ' por día' : ' hoy') + '</span></div>' +
         '<div class="proj-bar"><div class="proj-bar-fill" style="width:' + pct + '%"></div></div>';
-      if(cumplida){
+      if(c.noEmpezo){
+        html += '<div class="metames-note">Ese es el ritmo diario que vas a necesitar cuando arranque.</div>';
+      } else if(cumplida){
         html += '<div class="metames-note"><span class="ok">✓ Meta de hoy cumplida.</span> Lo de más adelanta el día siguiente.</div>';
       } else {
         html += '<div class="metames-note">Te faltan <span class="bad">S/ ' + fmt0(metaDiaria - hoyVal) + '</span> hoy para ir al ritmo que necesitas.</div>';
@@ -999,110 +1000,181 @@ function renderMetaPerso(data){
         (dias > 1 ? ' — unos S/ ' + fmt0(porDia) + ' por día (' + dias + ' días).' : ' — hoy es el último día.') + '</div>';
     }
   }
+  return html;
+}
 
-  // Solo los gastos del MISMO día que creaste la meta son ambiguos (pudiste
-  // crearla a media tarde, y algo de esa mañana no debería contar) — esos son
-  // los únicos que se muestran para revisar por defecto. Los días siguientes
-  // ya cuentan solos, sin pedirte que los repases cada vez.
-  const gastosCreacionDia = gastosPeriodo.filter(g => dayKey(g.date) === dayKey(fCreacion));
+function renderMetaPerso(data){
+  const box = document.getElementById('metaPersoBody');
+  if(!box) return;
+  const modoToggle = document.getElementById('metaPersoModoToggle');
+  document.querySelectorAll('#metaPersoMetricaToggle button').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-metrica') === metaPersoMetrica));
 
-  // Mismo criterio para las ventas del día que creaste la meta: por defecto
-  // cuentan todas, pero se listan (colapsadas) para que destildes las de
-  // antes de crearla.
-  if(ventasCreacionDia.length > 0){
-    html += '<div class="mpg-head clickable" id="metaPersoVentasHead">Ventas del ' + fCorto(fCreacion) + ' (día que creaste la meta) — destilda las que fueron ANTES de crearla' +
-      ' <button type="button" class="r-caret">' + (metaPersoVentasAbierto ? '▾' : '▸') + '</button></div>';
-    if(metaPersoVentasAbierto){
-      html += '<div class="mpg-list" id="metaPersoVentasList">' + ventasCreacionDia.map(v => mpvRowHtml(v, excluidosVentas)).join('') + '</div>';
-    }
+  const c = metaPersoCalc(data);
+  if(!c){
+    if(modoToggle) modoToggle.innerHTML = '';
+    box.innerHTML = '<div class="metames-empty">Aún no tienes una meta personalizada. Toca "✎ Editar meta" para crear una (ej. "S/ 970 para el 20 de agosto").</div>';
+    return;
   }
 
-  if(esEfectivo){
-    const ventasTot = detVentas.reduce((s,v) => s + v.venta, 0);
-    const gastosTot = gastosIncluidos.reduce((s,g) => s + g.monto, 0);
-    html += '<div class="metames-note">Desde que creaste la meta (' + fCorto(fCreacion) + '): vendiste S/ ' + fmt0(ventasTot) +
-      ' y gastaste S/ ' + fmt0(gastosTot) + ' (todo lo de tu app de gastos, incluida mercadería) → efectivo S/ ' + fmt0(ventasTot - gastosTot) + '.</div>';
-    if(gastosCreacionDia.length > 0){
-      html += '<div class="mpg-head clickable" id="metaPersoGastosHead">Gastos del ' + fCorto(fCreacion) + ' (día que creaste la meta) — destilda los que hiciste ANTES de crearla' +
-        ' <button type="button" class="r-caret">' + (metaPersoGastosAbierto ? '▾' : '▸') + '</button></div>';
-      if(metaPersoGastosAbierto){
-        html += '<div class="mpg-list" id="metaPersoGastosList">' + gastosCreacionDia.map(g => mpgRowHtml(g, excluidos)).join('') + '</div>';
-      }
-    }
-    if(gastosPeriodo.length > 0){
-      html += '<button type="button" class="cf-add-btn" id="metaPersoVerGastosBtn">Ver todos los gastos del período (' + gastosPeriodo.length + ')</button>';
-    }
+  // Toggle dinámico: [Por día] [→ cada hito] [Meta total].
+  let togHtml = '<button type="button" data-modo="dia">Por día</button>';
+  c.hitos.forEach(h => { togHtml += '<button type="button" data-modo="hito:' + esc(h.fechaISO) + '">→ ' + esc(c.fCorto(h.fecha)) + '</button>'; });
+  togHtml += '<button type="button" data-modo="total">Meta total</button>';
+  if(modoToggle) modoToggle.innerHTML = togHtml;
+
+  // Si el modo apunta a un hito que ya no existe (lo borraste), cae a total.
+  let modo = metaPersoModo;
+  const esHito = modo.indexOf('hito:') === 0;
+  if(esHito && !c.hitos.some(h => 'hito:' + h.fechaISO === modo)) modo = 'total';
+  else if(!esHito && ['dia','total'].indexOf(modo) === -1) modo = 'total';
+  document.querySelectorAll('#metaPersoModoToggle button').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-modo') === modo));
+
+  let html = metaPersoProgresoHtml(c, modo);
+
+  // Resumen compacto: una fila por ventas y otra por gastos, ambas abren el
+  // detalle a pantalla completa (donde se destildan uno por uno). Antes las
+  // listas iban acá adentro y ocupaban media pantalla.
+  const ventasTot = c.detVentas.reduce((s,v) => s + v.venta, 0);
+  const gastosTot = c.gastosIncluidos.reduce((s,g) => s + g.monto, 0);
+  const nVentasFuera = c.detVentasPeriodo.length - c.detVentas.length;
+  const nGastosFuera = c.gastosPeriodo.length - c.gastosIncluidos.length;
+  const fueraTxt = n => n > 0 ? '<span class="mpg-fuera">' + n + ' fuera</span>' : '';
+
+  html += '<div class="mpg-sums" id="metaPersoSums">' +
+    '<div class="mpg-sum clickable" data-mp-detalle="ventas">' +
+      '<span class="mpg-sum-name">Ventas contadas (' + c.detVentas.length + ') ' + fueraTxt(nVentasFuera) + '</span>' +
+      '<span class="mpg-sum-amt mono">S/ ' + fmt0(ventasTot) + ' ›</span>' +
+    '</div>';
+  if(c.esEfectivo){
+    html += '<div class="mpg-sum clickable" data-mp-detalle="gastos">' +
+      '<span class="mpg-sum-name">Gastos contados (' + c.gastosIncluidos.length + ') ' + fueraTxt(nGastosFuera) + '</span>' +
+      '<span class="mpg-sum-amt mono neg">− S/ ' + fmt0(gastosTot) + ' ›</span>' +
+    '</div>';
   }
+  html += '</div>';
+
+  html += '<div class="metames-note">Cuenta desde el ' + c.fCorto(c.fInicio) +
+    (c.ambiguo ? ' (día que creaste la meta)' : ' (programada)') + '. Toca una fila para revisar qué entra y qué no.</div>';
 
   box.innerHTML = html;
 
-  const wireGastosCheckboxes = (root) => {
-    root.querySelectorAll('input[type=checkbox]').forEach(cb => {
-      cb.addEventListener('change', () => {
-        const id = cb.getAttribute('data-id');
-        const mNow = leerMetaPerso();
-        if(!mNow) return;
-        let excl = mNow.excluidos || [];
-        excl = cb.checked ? excl.filter(x => x !== id) : (excl.indexOf(id) === -1 ? excl.concat([id]) : excl);
-        guardarMetaPerso(Object.assign({}, mNow, {excluidos: excl}));
-        cb.closest('.mpg-row').classList.toggle('excluido', !cb.checked);
-        if(LAST) renderMetaPerso(LAST.data);
-      });
-    });
-  };
-
-  const wireVentasCheckboxes = (root) => {
-    root.querySelectorAll('input[type=checkbox]').forEach(cb => {
-      cb.addEventListener('change', () => {
-        const id = cb.getAttribute('data-id');
-        const mNow = leerMetaPerso();
-        if(!mNow) return;
-        let excl = mNow.excluidosVentas || [];
-        excl = cb.checked ? excl.filter(x => x !== id) : (excl.indexOf(id) === -1 ? excl.concat([id]) : excl);
-        guardarMetaPerso(Object.assign({}, mNow, {excluidosVentas: excl}));
-        cb.closest('.mpg-row').classList.toggle('excluido', !cb.checked);
-        if(LAST) renderMetaPerso(LAST.data);
-      });
-    });
-  };
-
-  const ventasList = document.getElementById('metaPersoVentasList');
-  if(ventasList) wireVentasCheckboxes(ventasList);
-
-  const gastosList = document.getElementById('metaPersoGastosList');
-  if(gastosList) wireGastosCheckboxes(gastosList);
-
-  const verGastosBtn = document.getElementById('metaPersoVerGastosBtn');
-  if(verGastosBtn){
-    verGastosBtn.addEventListener('click', () => {
-      const mNow = leerMetaPerso();
-      const excl = (mNow && mNow.excluidos) || [];
-      openFullscreen('Gastos del período', '<div class="mpg-list" id="metaPersoGastosFsList">' +
-        gastosPeriodo.map(g => mpgRowHtml(g, excl)).join('') + '</div>');
-      wireGastosCheckboxes(document.getElementById('metaPersoGastosFsList'));
+  const sums = document.getElementById('metaPersoSums');
+  if(sums){
+    sums.addEventListener('click', (e) => {
+      const row = e.target.closest('[data-mp-detalle]');
+      if(!row) return;
+      abrirMetaPersoDetalle(row.getAttribute('data-mp-detalle'));
     });
   }
 }
 
-function mpvRowHtml(v, excluidos){
+// Detalle a pantalla completa: avance de la meta arriba (con su interruptor
+// Ventas/Efectivo, para cambiarlo sin salir), y debajo las listas completas
+// del período para destildar lo que no debe contar.
+function metaPersoDetalleHtml(c, foco){
+  const modo = ['dia','total'].indexOf(metaPersoModo) === -1 && metaPersoModo.indexOf('hito:') !== 0 ? 'total' : metaPersoModo;
+  let html = '<div class="mp-fs-top">' + metaPersoProgresoHtml(c, modo) + '</div>';
+
+  html += '<div class="metames-config-row"><div class="util-toggle" id="mpFsMetrica">' +
+    '<button type="button" data-metrica="ventas"' + (c.esEfectivo ? '' : ' class="active"') + '>Ventas</button>' +
+    '<button type="button" data-metrica="efectivo"' + (c.esEfectivo ? ' class="active"' : '') + '>Efectivo</button>' +
+  '</div></div>';
+
+  const marca = d => c.ambiguo && dayKey(d) === dayKey(c.fCreacion)
+    ? ' <span class="mpg-dia0">día 0</span>' : '';
+
+  html += '<div class="mpg-head">Ventas del período (' + c.detVentasPeriodo.length + ') — destilda las que no deban contar</div>';
+  html += c.detVentasPeriodo.length
+    ? '<div class="mpg-list" id="mpFsVentasList">' + c.detVentasPeriodo.map(v => mpvRowHtml(v, c.excluidosVentas, marca(v.date))).join('') + '</div>'
+    : '<div class="metames-note">Todavía no hay ventas en el período.</div>';
+
+  html += '<div class="mpg-head">Gastos del período (' + c.gastosPeriodo.length + ')' +
+    (c.esEfectivo ? ' — destilda los que no deban contar' : ' — solo afectan el modo Efectivo') + '</div>';
+  html += c.gastosPeriodo.length
+    ? '<div class="mpg-list" id="mpFsGastosList">' + c.gastosPeriodo.map(g => mpgRowHtml(g, c.excluidos, marca(g.date))).join('') + '</div>'
+    : '<div class="metames-note">Todavía no hay gastos en el período.</div>';
+
+  if(c.ambiguo){
+    html += '<div class="metames-note">"día 0" = movimientos del mismo día que creaste la meta: pueden ser de antes de crearla, por eso conviene revisarlos.</div>';
+  }
+  return html;
+}
+
+function abrirMetaPersoDetalle(foco){
+  if(!LAST) return;
+  const c = metaPersoCalc(LAST.data);
+  if(!c) return;
+  openFullscreen('Detalle de la meta', metaPersoDetalleHtml(c, foco));
+  wireMetaPersoDetalle(foco);
+}
+
+// Re-pinta el detalle (y la tarjeta de atrás) después de cada cambio, para que
+// el avance de arriba refleje al toque lo que acabas de destildar.
+function refrescarMetaPersoDetalle(foco){
+  if(!LAST) return;
+  const c = metaPersoCalc(LAST.data);
+  if(!c){ closeFullscreen(); return; }
+  const fsView = document.getElementById('fsView');
+  const scroll = fsView ? fsView.scrollTop : 0;
+  setFsBody(metaPersoDetalleHtml(c, foco));
+  if(fsView) fsView.scrollTop = scroll; // no te manda arriba en cada tilde
+  wireMetaPersoDetalle(foco);
+  renderMetaPerso(LAST.data);
+}
+
+function wireMetaPersoDetalle(foco){
+  const wireLista = (id, campo) => {
+    const root = document.getElementById(id);
+    if(!root) return;
+    root.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const itemId = cb.getAttribute('data-id');
+        const mNow = leerMetaPerso();
+        if(!mNow) return;
+        let excl = mNow[campo] || [];
+        excl = cb.checked ? excl.filter(x => x !== itemId) : (excl.indexOf(itemId) === -1 ? excl.concat([itemId]) : excl);
+        const patch = {}; patch[campo] = excl;
+        guardarMetaPerso(Object.assign({}, mNow, patch));
+        refrescarMetaPersoDetalle(foco);
+      });
+    });
+  };
+  wireLista('mpFsVentasList', 'excluidosVentas');
+  wireLista('mpFsGastosList', 'excluidos');
+
+  const metricaTog = document.getElementById('mpFsMetrica');
+  if(metricaTog){
+    metricaTog.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-metrica]');
+      if(!btn) return;
+      metaPersoMetrica = btn.getAttribute('data-metrica');
+      try{ localStorage.setItem('timeless_metaperso_metrica', metaPersoMetrica); }catch(err){}
+      refrescarMetaPersoDetalle(foco);
+    });
+  }
+}
+
+function mpvRowHtml(v, excluidos, marca){
   const checked = excluidos.indexOf(v.id) === -1;
   return '<label class="mpg-row' + (checked?'':' excluido') + '">' +
     '<input type="checkbox" data-id="' + esc(v.id) + '" ' + (checked?'checked':'') + '>' +
     '<span class="mpg-info">' +
       '<span class="mpg-cat">' + esc(v.producto) + '</span>' +
-      '<span class="mpg-fecha">' + fmtDateShort(v.date) + '</span>' +
+      '<span class="mpg-fecha">' + fmtDateShort(v.date) + (marca||'') + '</span>' +
     '</span>' +
     '<span class="mpg-monto mono">S/ ' + fmt(v.venta) + '</span>' +
   '</label>';
 }
 
-function mpgRowHtml(g, excluidos){
+function mpgRowHtml(g, excluidos, marca){
   const checked = excluidos.indexOf(g.id) === -1;
   return '<label class="mpg-row' + (checked?'':' excluido') + '">' +
     '<input type="checkbox" data-id="' + esc(g.id) + '" ' + (checked?'checked':'') + '>' +
     '<span class="mpg-info">' +
       '<span class="mpg-cat">' + esc(g.categoria) + (g.nota?' · '+esc(g.nota):'') + '</span>' +
-      '<span class="mpg-fecha">' + fmtDateShort(g.date) + '</span>' +
+      '<span class="mpg-fecha">' + fmtDateShort(g.date) + (marca||'') + '</span>' +
     '</span>' +
     '<span class="mpg-monto mono">S/ ' + fmt(g.monto) + '</span>' +
   '</label>';
@@ -1116,7 +1188,10 @@ function renderMetaPersoForm(m){
     '<input type="text" inputmode="decimal" class="cf-input" id="mpMonto" placeholder="Ej. 970" value="' + esc((m&&m.monto)||'') + '">' +
     '<label class="cf-label">Fecha límite</label>' +
     '<input type="date" class="cf-input" id="mpFecha" value="' + esc((m&&m.fechaLimite)||'') + '">' +
-    '<div class="cf-estado-hint">Las ventas y gastos se cuentan desde que guardes esta meta (hoy), no desde antes.</div>' +
+
+    '<label class="cf-label">Empezar a contar desde (opcional)</label>' +
+    '<input type="date" class="cf-input" id="mpFechaInicio" value="' + esc((m&&m.fechaInicio)||'') + '">' +
+    '<div class="cf-estado-hint">Déjalo vacío para que cuente desde hoy. Si pones una fecha futura, la meta queda programada: nada de antes de ese día cuenta (ni ventas ni gastos), y arranca limpia ese día.</div>' +
 
     '<label class="cf-label">Metas intermedias (opcional)</label>' +
     '<div class="cf-estado-hint">Ej. "S/ 400 para el 15" y "S/ 600 para el 18", camino a tu meta final. Se ven como pestañitas extra (→ 15-ago, → 18-ago) junto a "Por día" y "Meta total".</div>' +
@@ -1170,12 +1245,14 @@ function openMetaPersoForm(){
   document.getElementById('mpGuardar').addEventListener('click', () => {
     const monto = Number(document.getElementById('mpMonto').value) || 0;
     const fechaLimite = document.getElementById('mpFecha').value;
+    const fechaInicio = document.getElementById('mpFechaInicio').value;
     if(monto <= 0 || !fechaLimite){ alert('Pon un monto y una fecha límite.'); return; }
+    if(fechaInicio && fechaInicio > fechaLimite){ alert('La fecha de inicio no puede ser después de la fecha límite.'); return; }
     const hitos = [...hitosList.querySelectorAll('.mp-hito-row')].map(row => ({
       fecha: row.querySelector('.mp-hito-fecha').value,
       monto: Number(row.querySelector('.mp-hito-monto').value) || 0,
     })).filter(h => h.fecha && h.monto > 0);
-    guardarMetaPerso({ monto, fechaLimite, fechaCreacion: (m && m.fechaCreacion) || todayISO(), hitos, excluidos: (m && m.excluidos) || [], excluidosVentas: (m && m.excluidosVentas) || [] });
+    guardarMetaPerso({ monto, fechaLimite, fechaInicio, fechaCreacion: (m && m.fechaCreacion) || todayISO(), hitos, excluidos: (m && m.excluidos) || [], excluidosVentas: (m && m.excluidosVentas) || [] });
     closeFullscreen();
     if(LAST) renderMetaPerso(LAST.data);
   });
@@ -1221,20 +1298,6 @@ document.getElementById('metaPersoModoToggle').addEventListener('click', (e) => 
   if(!btn) return;
   metaPersoModo = btn.getAttribute('data-modo');
   try{ localStorage.setItem('timeless_metaperso_modo', metaPersoModo); }catch(err){}
-  if(LAST) renderMetaPerso(LAST.data);
-});
-
-// "Ventas del [día]"/"Gastos del [día]": flechita para desplegar la lista
-// sin ocupar espacio de entrada (metaPersoBody se re-pinta entero en cada
-// render, por eso se delega el click sobre el contenedor).
-document.getElementById('metaPersoBody').addEventListener('click', (e) => {
-  if(e.target.closest('#metaPersoVentasHead')){
-    metaPersoVentasAbierto = !metaPersoVentasAbierto;
-  } else if(e.target.closest('#metaPersoGastosHead')){
-    metaPersoGastosAbierto = !metaPersoGastosAbierto;
-  } else {
-    return;
-  }
   if(LAST) renderMetaPerso(LAST.data);
 });
 
