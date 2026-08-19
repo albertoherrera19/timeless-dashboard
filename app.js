@@ -839,6 +839,11 @@ if(['ventas','efectivo'].indexOf(metaPersoMetrica) === -1) metaPersoMetrica = 'v
 let metaPersoModo = 'total';
 try{ metaPersoModo = localStorage.getItem('timeless_metaperso_modo') || 'total'; }catch(e){}
 
+// Listas de ventas/gastos del día de creación: colapsadas por defecto para
+// no ocupar espacio; una flechita las despliega.
+let metaPersoVentasAbierto = false;
+let metaPersoGastosAbierto = false;
+
 function renderMetaPerso(data){
   const box = document.getElementById('metaPersoBody');
   if(!box) return;
@@ -1002,10 +1007,14 @@ function renderMetaPerso(data){
   const gastosCreacionDia = gastosPeriodo.filter(g => dayKey(g.date) === dayKey(fCreacion));
 
   // Mismo criterio para las ventas del día que creaste la meta: por defecto
-  // cuentan todas, pero se listan para que destildes las de antes de crearla.
+  // cuentan todas, pero se listan (colapsadas) para que destildes las de
+  // antes de crearla.
   if(ventasCreacionDia.length > 0){
-    html += '<div class="mpg-head">Ventas del ' + fCorto(fCreacion) + ' (día que creaste la meta) — destilda las que fueron ANTES de crearla:</div>' +
-      '<div class="mpg-list" id="metaPersoVentasList">' + ventasCreacionDia.map(v => mpvRowHtml(v, excluidosVentas)).join('') + '</div>';
+    html += '<div class="mpg-head clickable" id="metaPersoVentasHead">Ventas del ' + fCorto(fCreacion) + ' (día que creaste la meta) — destilda las que fueron ANTES de crearla' +
+      ' <button type="button" class="r-caret">' + (metaPersoVentasAbierto ? '▾' : '▸') + '</button></div>';
+    if(metaPersoVentasAbierto){
+      html += '<div class="mpg-list" id="metaPersoVentasList">' + ventasCreacionDia.map(v => mpvRowHtml(v, excluidosVentas)).join('') + '</div>';
+    }
   }
 
   if(esEfectivo){
@@ -1014,8 +1023,11 @@ function renderMetaPerso(data){
     html += '<div class="metames-note">Desde que creaste la meta (' + fCorto(fCreacion) + '): vendiste S/ ' + fmt0(ventasTot) +
       ' y gastaste S/ ' + fmt0(gastosTot) + ' (todo lo de tu app de gastos, incluida mercadería) → efectivo S/ ' + fmt0(ventasTot - gastosTot) + '.</div>';
     if(gastosCreacionDia.length > 0){
-      html += '<div class="mpg-head">Gastos del ' + fCorto(fCreacion) + ' (día que creaste la meta) — destilda los que hiciste ANTES de crearla:</div>' +
-        '<div class="mpg-list" id="metaPersoGastosList">' + gastosCreacionDia.map(g => mpgRowHtml(g, excluidos)).join('') + '</div>';
+      html += '<div class="mpg-head clickable" id="metaPersoGastosHead">Gastos del ' + fCorto(fCreacion) + ' (día que creaste la meta) — destilda los que hiciste ANTES de crearla' +
+        ' <button type="button" class="r-caret">' + (metaPersoGastosAbierto ? '▾' : '▸') + '</button></div>';
+      if(metaPersoGastosAbierto){
+        html += '<div class="mpg-list" id="metaPersoGastosList">' + gastosCreacionDia.map(g => mpgRowHtml(g, excluidos)).join('') + '</div>';
+      }
     }
     if(gastosPeriodo.length > 0){
       html += '<button type="button" class="cf-add-btn" id="metaPersoVerGastosBtn">Ver todos los gastos del período (' + gastosPeriodo.length + ')</button>';
@@ -1209,6 +1221,20 @@ document.getElementById('metaPersoModoToggle').addEventListener('click', (e) => 
   if(!btn) return;
   metaPersoModo = btn.getAttribute('data-modo');
   try{ localStorage.setItem('timeless_metaperso_modo', metaPersoModo); }catch(err){}
+  if(LAST) renderMetaPerso(LAST.data);
+});
+
+// "Ventas del [día]"/"Gastos del [día]": flechita para desplegar la lista
+// sin ocupar espacio de entrada (metaPersoBody se re-pinta entero en cada
+// render, por eso se delega el click sobre el contenedor).
+document.getElementById('metaPersoBody').addEventListener('click', (e) => {
+  if(e.target.closest('#metaPersoVentasHead')){
+    metaPersoVentasAbierto = !metaPersoVentasAbierto;
+  } else if(e.target.closest('#metaPersoGastosHead')){
+    metaPersoGastosAbierto = !metaPersoGastosAbierto;
+  } else {
+    return;
+  }
   if(LAST) renderMetaPerso(LAST.data);
 });
 
