@@ -833,6 +833,18 @@ h1{
 
 /* 7. Accesorios para traer */
 .compras-list{display:flex;flex-direction:column;}
+/* Grip para arrastrar y reordenar por prioridad (Accesorios / Seguimiento).
+   touch-action:none evita que el navegador haga scroll en vez de arrastrar. */
+.drag-handle{
+  flex-shrink:0;cursor:grab;color:var(--muted);font-size:16px;line-height:1;
+  padding:4px 2px;touch-action:none;user-select:none;-webkit-user-select:none;
+  align-self:center;
+}
+.drag-handle:active{cursor:grabbing;color:var(--accent);}
+/* Mientras se arrastra: fila resaltada y sin selección de texto en toda la app. */
+.compra-row.dragging, .seg-row.dragging{opacity:.85;background:var(--chip);border-radius:8px;}
+body.drag-active{user-select:none;-webkit-user-select:none;cursor:grabbing;}
+
 .compra-row{
   display:flex;align-items:center;gap:12px;padding:12px 2px;
   border-bottom:1px dashed var(--line);cursor:pointer;

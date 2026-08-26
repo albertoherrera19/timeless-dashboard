@@ -1265,6 +1265,11 @@ function openMetaPersoForm(){
   if(btnBorrar) btnBorrar.addEventListener('click', () => {
     if(!confirm('¿Borrar esta meta personalizada?')) return;
     borrarMetaPerso();
+    // Deja TODO como recién instalado: la próxima meta arranca en blanco,
+    // sin heredar métrica (Ventas/Efectivo) ni modo (Por día/Meta total).
+    metaPersoMetrica = 'ventas';
+    metaPersoModo = 'total';
+    try{ localStorage.removeItem('timeless_metaperso_metrica'); localStorage.removeItem('timeless_metaperso_modo'); }catch(e){}
     closeFullscreen();
     if(LAST) renderMetaPerso(LAST.data);
   });
@@ -2828,6 +2833,75 @@ function segHace(iso){
   return 'hace ' + dias + ' días';
 }
 
+// ---------- Orden manual de prioridad (arrastrar para reordenar) ----------
+// El orden lo elige Alberto y se guarda SOLO en este dispositivo (localStorage):
+// no toca Google Sheets ni el Apps Script, así que no hace falta redeployar nada.
+// Es una prioridad personal, así que vivir por dispositivo está bien.
+const COMPRAS_ORDEN_KEY = 'timeless_compras_orden';
+const SEG_ORDEN_KEY     = 'timeless_seg_orden';
+
+function leerOrden(key){
+  try{ return JSON.parse(localStorage.getItem(key)) || []; }catch(e){ return []; }
+}
+function guardarOrden(key, ids){
+  try{ localStorage.setItem(key, JSON.stringify(ids)); }catch(e){}
+}
+// Reordena `items` (ya venían con su orden por defecto) según el orden manual
+// guardado: los que Alberto ya movió van primero en ESE orden; los nuevos que
+// todavía no tienen posición manual quedan al final, en su orden por defecto.
+function aplicarOrdenManual(items, key, getId){
+  const orden = leerOrden(key);
+  if(!orden.length) return items;
+  const pos = id => { const i = orden.indexOf(id); return i === -1 ? Infinity : i; };
+  return items.map((it, i) => ({it, i})) // índice para desempate estable
+    .sort((a,b) => { const d = pos(getId(a.it)) - pos(getId(b.it)); return d !== 0 ? d : a.i - b.i; })
+    .map(x => x.it);
+}
+
+// Arrastrar para reordenar, con pointer events (sirve en táctil y con mouse).
+// Se agarra SOLO desde el "grip" (⠿) para no chocar con el tap que abre la
+// ficha. Mientras arrastras, el body lleva .drag-active (bloquea selección de
+// texto). Los listeners de movimiento van en document, así mover el nodo en el
+// DOM no corta el arrastre.
+function enableDragReorder(container, itemSelector, handleSelector, onReorder){
+  container.querySelectorAll(handleSelector).forEach(handle => {
+    handle.addEventListener('click', e => { e.stopPropagation(); });
+    handle.addEventListener('pointerdown', e => {
+      if(e.button != null && e.button > 0) return; // solo botón principal / toque
+      const dragEl = handle.closest(itemSelector);
+      if(!dragEl) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragEl.classList.add('dragging');
+      document.body.classList.add('drag-active');
+
+      const onMove = ev => {
+        const y = ev.clientY;
+        const otros = [...container.querySelectorAll(itemSelector + ':not(.dragging)')];
+        let antesDe = null;
+        for(const item of otros){
+          const r = item.getBoundingClientRect();
+          if(y < r.top + r.height / 2){ antesDe = item; break; }
+        }
+        if(antesDe) container.insertBefore(dragEl, antesDe);
+        else container.appendChild(dragEl);
+      };
+      const onUp = () => {
+        dragEl.classList.remove('dragging');
+        document.body.classList.remove('drag-active');
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('pointercancel', onUp);
+        const ids = [...container.querySelectorAll(itemSelector)].map(el => el.getAttribute('data-id'));
+        onReorder(ids);
+      };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+      document.addEventListener('pointercancel', onUp);
+    });
+  });
+}
+
 function renderSeguimiento(){
   const box = document.getElementById('segList');
   const alertBox = document.getElementById('segAlert');
@@ -2850,15 +2924,17 @@ function renderSeguimiento(){
     return;
   }
 
-  // Orden: primero los que importan (por llegar / problema), luego en camino,
-  // luego el resto; dentro de cada grupo, lo más nuevo primero.
+  // Orden por defecto: primero los que importan (por llegar / problema), luego
+  // en camino, luego el resto; dentro de cada grupo, lo más nuevo primero.
   const prioridad = {llega:0, alerta:1, transito:2, ok:3, gris:4};
-  const ordenados = activos.slice().sort((a,b) => {
+  const porDefecto = activos.slice().sort((a,b) => {
     const pa = prioridad[segEstadoInfo(a.estado).cls] ?? 5;
     const pb = prioridad[segEstadoInfo(b.estado).cls] ?? 5;
     if(pa !== pb) return pa - pb;
     return new Date(b.creadoEn||0) - new Date(a.creadoEn||0);
   });
+  // Si Alberto ya arrastró para fijar prioridades, ese orden manda.
+  const ordenados = aplicarOrdenManual(porDefecto, SEG_ORDEN_KEY, s => s.id);
 
   box.innerHTML = ordenados.map(s => {
     // El badge de estado solo aparece si hay estado (o sea, si algún día se
@@ -2871,6 +2947,7 @@ function renderSeguimiento(){
                  : (s.fechaPedido ? 'pedido ' + segHace(s.fechaPedido) : '');
     const sub = [s.plataforma, s.ubicacion || s.descripcion, cuando].filter(Boolean).join(' · ');
     return '<div class="seg-row" data-id="' + esc(s.id) + '">' +
+        '<span class="drag-handle" title="Arrastra para ordenar por prioridad">⠿</span>' +
         '<div class="seg-main">' +
           '<div class="seg-top-line">' +
             '<span class="seg-prod">' + esc(s.productos || s.tracking) + '</span>' +
@@ -2895,6 +2972,11 @@ function renderSeguimiento(){
     el.querySelectorAll('.seg-link, .seg-copy').forEach(b => b.addEventListener('click', ev => ev.stopPropagation()));
     const copyBtn = el.querySelector('.seg-copy');
     if(copyBtn) copyBtn.addEventListener('click', () => segCopiar(copyBtn));
+  });
+
+  enableDragReorder(box, '.seg-row', '.drag-handle', ids => {
+    guardarOrden(SEG_ORDEN_KEY, ids);
+    renderSeguimiento();
   });
 }
 
@@ -3121,7 +3203,8 @@ function renderCompras(){
     box.innerHTML = '<div class="empty">Aún no tienes bloques de compra planeados. Toca "+ Nuevo bloque" para agregar el primero.</div>';
     return;
   }
-  const ordenados = compras.slice().sort((a,b) => new Date(b.creadoEn||0) - new Date(a.creadoEn||0));
+  const porDefecto = compras.slice().sort((a,b) => new Date(b.creadoEn||0) - new Date(a.creadoEn||0));
+  const ordenados = aplicarOrdenManual(porDefecto, COMPRAS_ORDEN_KEY, c => c.id);
   box.innerHTML = ordenados.map(c => {
     const productos = c.productos || [];
     const unidades = productos.reduce((s,p) => s + (Number(p.cantidad)||0), 0);
@@ -3142,6 +3225,7 @@ function renderCompras(){
     const nRestock = productos.filter(p => p.tipo === 'Restock').length;
     const desgloseTxt = (c.estado === 'Ambos' && nProd > 0) ? ' · ' + nNuevo + ' nuevo · ' + nRestock + ' restock' : '';
     return '<div class="compra-row" data-id="' + esc(c.id) + '">' +
+        '<span class="drag-handle" title="Arrastra para ordenar por prioridad">⠿</span>' +
         '<div class="compra-thumb">' + thumb + '</div>' +
         '<div class="compra-info">' +
           '<div class="compra-top-line">' +
@@ -3174,6 +3258,11 @@ function renderCompras(){
       if(!confirm('¿Ya pediste/compraste todo este bloque? Se va a quitar de la lista de Accesorios.')) return;
       eliminarCompraBlock(id, loadCompras, err => alert('⚠ ' + err));
     });
+  });
+
+  enableDragReorder(box, '.compra-row', '.drag-handle', ids => {
+    guardarOrden(COMPRAS_ORDEN_KEY, ids);
+    renderCompras();
   });
 }
 
