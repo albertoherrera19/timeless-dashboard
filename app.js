@@ -1198,6 +1198,10 @@ function renderMetaPersoForm(m){
     '<div id="mpHitosList"></div>' +
     '<button type="button" class="cf-add-btn" id="mpHitoAdd">+ Agregar meta intermedia</button>' +
 
+    '<label class="cf-label">Nota (opcional)</label>' +
+    '<textarea class="cf-input cf-textarea" id="mpNota" placeholder="Ej. para qué es, a quién y cuánto le tengo que pagar...">' + esc((m&&m.nota)||'') + '</textarea>' +
+    '<div class="cf-estado-hint">Solo la ves acá, al editar la meta — no sale en la tarjeta.</div>' +
+
     '<div class="cf-actions">' +
       (m ? '<button type="button" class="cf-btn cf-btn-danger" id="mpBorrar">Borrar meta</button>' : '') +
       '<button type="button" class="cf-btn cf-btn-primary" id="mpGuardar">Guardar</button>' +
@@ -1252,7 +1256,8 @@ function openMetaPersoForm(){
       fecha: row.querySelector('.mp-hito-fecha').value,
       monto: Number(row.querySelector('.mp-hito-monto').value) || 0,
     })).filter(h => h.fecha && h.monto > 0);
-    guardarMetaPerso({ monto, fechaLimite, fechaInicio, fechaCreacion: (m && m.fechaCreacion) || todayISO(), hitos, excluidos: (m && m.excluidos) || [], excluidosVentas: (m && m.excluidosVentas) || [] });
+    const nota = document.getElementById('mpNota').value.trim();
+    guardarMetaPerso({ monto, fechaLimite, fechaInicio, nota, fechaCreacion: (m && m.fechaCreacion) || todayISO(), hitos, excluidos: (m && m.excluidos) || [], excluidosVentas: (m && m.excluidosVentas) || [] });
     closeFullscreen();
     if(LAST) renderMetaPerso(LAST.data);
   });
