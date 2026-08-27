@@ -447,7 +447,18 @@ const ALIAS_PRODUCTO = {
   'gold rosary chain': 'Collar gold rosary chain',
   'rosary gold': 'Collar gold rosary chain',
   'gold rosary': 'Collar gold rosary chain',
+  // Detectado 2026-08-26: venta anotada "2 Collares demon cross" (plural) —
+  // sin este alias no calzaba con "Collar demon cross" de Stocks.
+  'collares demon cross': 'Collar demon cross',
 };
+
+// Cantidad al inicio de una pieza ("2 Cinturon hitboy", "2x Cinturon hitboy"):
+// atajo para no tener que escribir "Cinturon hitboy + Cinturon hitboy" a mano.
+// Ojo: el nombre de todos modos tiene que calzar con el de Stocks (o un alias
+// de ahí abajo) EN SINGULAR — poner el plural ("2 Cinturones hitboy") no lo
+// va a reconocer a menos que se agregue como alias, igual que pasó arriba con
+// "Collares demon cross".
+const RX_CANTIDAD = /^(\d{1,2})\s*[x×]?\s+(.+)$/i;
 
 // Separa un combo ("collar A + collar B") en sus piezas, expandiendo cualquier
 // alias corto (ver COMBO_ALIAS) pieza por pieza — así funciona tanto si el
@@ -456,14 +467,20 @@ const ALIAS_PRODUCTO = {
 // pieza suelta coincide con ALIAS_PRODUCTO (mismo producto, nombre distinto),
 // se renombra al nombre exacto de Stocks. Si vendes/canjeas algo con el
 // nombre exacto tal cual está en Stocks, ninguno de los dos aplica y sigue
-// igual.
+// igual. Se usa en TODO lo que lee productos de Ventas o Canjes (más
+// vendidos, velocidad de stock, canjes/reposición), así una sola regla vale
+// para todo el dashboard.
 function splitCombo(nombre){
   const piezas = String(nombre||'').split('+').map(s => s.trim()).filter(Boolean);
   const out = [];
   piezas.forEach(p => {
-    const combo = COMBO_ALIAS[normName(p)];
-    if(combo){ out.push(...combo); return; }
-    out.push(ALIAS_PRODUCTO[normName(p)] || p);
+    let cantidad = 1;
+    let pieza = p;
+    const m = p.match(RX_CANTIDAD);
+    if(m){ cantidad = Math.min(30, parseInt(m[1], 10)); pieza = m[2].trim(); }
+    const combo = COMBO_ALIAS[normName(pieza)];
+    const resuelto = combo || [ALIAS_PRODUCTO[normName(pieza)] || pieza];
+    for(let i = 0; i < cantidad; i++) out.push(...resuelto);
   });
   return out;
 }
