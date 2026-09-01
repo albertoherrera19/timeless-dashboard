@@ -730,8 +730,17 @@ function renderVentasRecientes(data){
 let metaMesModo = 'dia';
 try{ metaMesModo = localStorage.getItem('timeless_metames_modo') || 'dia'; }catch(e){}
 if(['dia','bloque','mes'].indexOf(metaMesModo) === -1) metaMesModo = 'dia';
-let metaMesValor = 0;
-try{ metaMesValor = Number(localStorage.getItem('timeless_metames_valor')) || 0; }catch(e){}
+
+// El VALOR de la meta es POR MES — cada mes arranca sin meta, no hereda la
+// del mes anterior (modo y métrica sí son una preferencia y se quedan igual
+// entre meses, eso no cambia).
+function metaMesValorKey(mk){ return 'timeless_metames_valor_' + mk; }
+function leerMetaMesValor(mk){
+  try{ return Number(localStorage.getItem(metaMesValorKey(mk))) || 0; }catch(e){ return 0; }
+}
+let metaMesValor = leerMetaMesValor(monthKey(new Date()));
+let metaMesUltimoMes = monthKey(new Date());
+
 // Qué métrica mostrar contra la meta: 'ventas' (lo que escribes arriba, tal cual)
 // o 'ganancia' (líquida, estimada según tu margen real del mes en curso — no es
 // una meta aparte, solo te dice a cuánto equivale tu meta de ventas en líquido).
@@ -744,6 +753,16 @@ function renderMetaMes(data){
   const input = document.getElementById('metaMesInput');
   const monthLbl = document.getElementById('metaMesMonthLabel');
   if(!bodyEl) return;
+
+  // Si el mes calendario cambió desde el último render (medianoche, con el
+  // dashboard ya abierto), recarga el valor guardado PARA ESE mes — nunca el
+  // del mes anterior.
+  const curKeyHoy = monthKey(new Date());
+  if(curKeyHoy !== metaMesUltimoMes){
+    metaMesValor = leerMetaMesValor(curKeyHoy);
+    metaMesUltimoMes = curKeyHoy;
+  }
+
   document.querySelectorAll('#metaMesToggle button').forEach(b =>
     b.classList.toggle('active', b.getAttribute('data-modo') === metaMesModo));
   document.querySelectorAll('#metaMesMetricaToggle button').forEach(b =>
@@ -1789,6 +1808,10 @@ function buildMonthOptions(ventas, gastos){
   const set = {};
   ventas.forEach(v => set[monthKey(v.date)] = true);
   gastos.forEach(g => set[monthKey(g.date)] = true);
+  // El mes actual SIEMPRE aparece, aunque todavía no tenga ninguna venta ni
+  // gasto — así apenas empieza el mes (00:00 del día 1) ya se puede elegir,
+  // en vez de esperar a que llegue el primer movimiento.
+  set[monthKey(new Date())] = true;
   const keys = Object.keys(set).sort(); // ascendente
   const sel = document.getElementById('monthSelect');
   if(!sel) return;
@@ -3858,7 +3881,7 @@ document.getElementById('metaMesToggle').addEventListener('click', (e) => {
 });
 document.getElementById('metaMesInput').addEventListener('input', (e) => {
   metaMesValor = Number(e.target.value) || 0;
-  try{ localStorage.setItem('timeless_metames_valor', metaMesValor); }catch(err){}
+  try{ localStorage.setItem(metaMesValorKey(monthKey(new Date())), metaMesValor); }catch(err){}
   if(LAST) renderMetaMes(LAST.data);
 });
 
