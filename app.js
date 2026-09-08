@@ -724,6 +724,72 @@ function renderVentasRecientes(data){
   }
 }
 
+// ---------- Metas (Meta del mes + Meta personalizada): guardadas en Sheets ----------
+// Antes vivían solo en localStorage (por eso se veían en el celular pero
+// "desaparecían" en la laptop — cada dispositivo tenía su propio localStorage).
+// Ahora se leen/escriben vía el mismo webhook que Compras/Seguimiento (pestaña
+// "Metas"), así cualquier dispositivo ve la misma meta. `metas` es la copia en
+// memoria (id -> data), poblada por loadMetas() al abrir el dashboard.
+let metas = {};
+
+function metaGuardarRemoto(id, data){
+  if(!cfg.WEBHOOK_URL) return;
+  fetch(cfg.WEBHOOK_URL, {
+    method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({type:'metaGuardar', id, data})
+  }).catch(() => {});
+}
+function metaEliminarRemoto(id){
+  if(!cfg.WEBHOOK_URL) return;
+  fetch(cfg.WEBHOOK_URL, {
+    method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({type:'metaEliminar', id})
+  }).catch(() => {});
+}
+
+// Migración de UNA sola vez por dispositivo: si Sheets todavía no tiene una
+// meta pero ESTE dispositivo sí la tenía guardada en localStorage (versión
+// anterior, antes de sincronizar), se sube para no perderla. Solo pasa una
+// vez (bandera en localStorage) — así, si más adelante borras la meta desde
+// otro dispositivo, este no la "resucita" en cada carga.
+function migrarMetasLocalStorageUnaVez(){
+  try{
+    if(localStorage.getItem('timeless_metas_migrado')) return;
+    if(!metas['personalizada']){
+      const raw = localStorage.getItem('timeless_metaperso');
+      if(raw){
+        const m = JSON.parse(raw);
+        if(m && m.monto){ metas['personalizada'] = m; metaGuardarRemoto('personalizada', m); }
+      }
+    }
+    const mk = monthKey(new Date());
+    const idMes = 'mes-' + mk;
+    if(!metas[idMes]){
+      const valor = Number(localStorage.getItem('timeless_metames_valor_' + mk)) || 0;
+      if(valor > 0){ metas[idMes] = {monto: valor}; metaGuardarRemoto(idMes, {monto: valor}); }
+    }
+    localStorage.setItem('timeless_metas_migrado', '1');
+  }catch(e){}
+}
+
+function loadMetas(){
+  if(!cfg.WEBHOOK_URL) return;
+  fetch(cfg.WEBHOOK_URL + '?action=metas&_cb=' + Date.now(), {cache:'no-store'})
+    .then(r => r.json())
+    .then(resp => {
+      const list = (resp && resp.metas) ? resp.metas : [];
+      metas = {};
+      list.forEach(m => { metas[m.id] = m.data; });
+      migrarMetasLocalStorageUnaVez();
+      // Refresca lo que ya se había pintado con valores en 0/vacíos (loadAll
+      // corre antes de que esto responda) sin esperar a que cambie el mes.
+      metaMesValor = leerMetaMesValor(monthKey(new Date()));
+      metaMesUltimoMes = monthKey(new Date());
+      if(LAST){ renderMetaMes(LAST.data); renderMetaPerso(LAST.data); }
+    })
+    .catch(() => {});
+}
+
 // 6a2. META DEL MES — meta de ventas configurable (motivacional, no viene del Excel).
 // Se guarda en localStorage y se compara contra los ingresos reales del mes en curso
 // (VentasDetalle), repartida por día, por bloques de 10 días o por el mes completo.
@@ -733,12 +799,19 @@ if(['dia','bloque','mes'].indexOf(metaMesModo) === -1) metaMesModo = 'dia';
 
 // El VALOR de la meta es POR MES — cada mes arranca sin meta, no hereda la
 // del mes anterior (modo y métrica sí son una preferencia y se quedan igual
-// entre meses, eso no cambia).
-function metaMesValorKey(mk){ return 'timeless_metames_valor_' + mk; }
+// entre meses, eso no cambia). Se guarda en Sheets (pestaña "Metas", vía
+// metaGuardarRemoto) para que se vea igual desde cualquier dispositivo, no
+// solo en el que la escribiste — antes vivía solo en localStorage.
+function metaMesValorKey(mk){ return 'mes-' + mk; }
 function leerMetaMesValor(mk){
-  try{ return Number(localStorage.getItem(metaMesValorKey(mk))) || 0; }catch(e){ return 0; }
+  const m = metas[metaMesValorKey(mk)];
+  return (m && Number(m.monto)) || 0;
 }
-let metaMesValor = leerMetaMesValor(monthKey(new Date()));
+function guardarMetaMesValor(mk, valor){
+  metas[metaMesValorKey(mk)] = { monto: valor };
+  metaGuardarRemoto(metaMesValorKey(mk), { monto: valor });
+}
+let metaMesValor = 0; // se refresca en cuanto loadMetas() trae lo real de Sheets
 let metaMesUltimoMes = monthKey(new Date());
 
 // Qué métrica mostrar contra la meta: 'ventas' (lo que escribes arriba, tal cual)
@@ -857,12 +930,20 @@ function renderMetaMes(data){
 // registrados (incluida "Inversión", que Utilidad excluye porque ya está en
 // el costo — pero acá es plata real que sale de tu bolsillo). Ventas y gastos
 // se cuentan solo desde que guardaste la meta (no desde antes).
-function leerMetaPerso(){
-  try{ const raw = localStorage.getItem('timeless_metaperso'); return raw ? JSON.parse(raw) : null; }
-  catch(e){ return null; }
+// Meta personalizada: se guarda en Sheets (pestaña "Metas", ID "personalizada")
+// para que se vea igual en cualquier dispositivo — antes vivía solo en
+// localStorage, por eso se "borraba" al entrar desde otro celular/laptop.
+// `metas` ya está cargado en memoria (loadMetas), así que leer/guardar sigue
+// siendo síncrono para el resto del código — solo cambió DÓNDE vive el dato.
+function leerMetaPerso(){ return metas['personalizada'] || null; }
+function guardarMetaPerso(m){
+  metas['personalizada'] = m;
+  metaGuardarRemoto('personalizada', m);
 }
-function guardarMetaPerso(m){ try{ localStorage.setItem('timeless_metaperso', JSON.stringify(m)); }catch(e){} }
-function borrarMetaPerso(){ try{ localStorage.removeItem('timeless_metaperso'); }catch(e){} }
+function borrarMetaPerso(){
+  delete metas['personalizada'];
+  metaEliminarRemoto('personalizada');
+}
 function todayISO(){ const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 
 let metaPersoMetrica = 'ventas';
@@ -3881,7 +3962,7 @@ document.getElementById('metaMesToggle').addEventListener('click', (e) => {
 });
 document.getElementById('metaMesInput').addEventListener('input', (e) => {
   metaMesValor = Number(e.target.value) || 0;
-  try{ localStorage.setItem(metaMesValorKey(monthKey(new Date())), metaMesValor); }catch(err){}
+  guardarMetaMesValor(monthKey(new Date()), metaMesValor);
   if(LAST) renderMetaMes(LAST.data);
 });
 
@@ -3912,3 +3993,4 @@ loadInstagram();
 loadSeguimiento();
 loadAnunciosMeta();
 loadCashback();
+loadMetas();
