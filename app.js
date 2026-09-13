@@ -141,6 +141,21 @@ function fetchCSV(url){
     .then(parseCSV);
 }
 
+// El Apps Script (Compras/Seguimiento/Metas/Cashback/AnunciosMeta/Instagram)
+// a veces tarda o falla si hay varias pestañas/dispositivos pegándole al
+// mismo tiempo (cada uno dispara 6 lecturas en vivo al abrir el dashboard) —
+// un reintento corto lo resuelve solo casi siempre, sin que Alberto tenga que
+// darse cuenta de que faltó algo y recargar la página a mano.
+function fetchJsonConReintento(url, intentos){
+  intentos = intentos == null ? 2 : intentos;
+  return fetch(url, {cache:'no-store'})
+    .then(r => { if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .catch(err => {
+      if(intentos <= 1) throw err;
+      return new Promise(resolve => setTimeout(resolve, 1500)).then(() => fetchJsonConReintento(url, intentos - 1));
+    });
+}
+
 function loadCache(){
   try{ return JSON.parse(localStorage.getItem(CACHE_KEY)) || null; }catch(e){ return null; }
 }
@@ -195,7 +210,21 @@ function loadAll(){
   });
 }
 
-document.getElementById('refreshBtn').addEventListener('click', loadAll);
+// El botón de refrescar antes solo releía Ventas/Gastos/Stocks (loadAll):
+// Compras, Seguimiento, Metas, Cashback, AnunciosMeta e Instagram se leen del
+// mismo Apps Script pero solo se pedían UNA vez al abrir el dashboard — si esa
+// única lectura fallaba (Apps Script saturado), esa sección quedaba vacía para
+// siempre hasta recargar la página entera. Ahora refrescar también las vuelve
+// a pedir.
+document.getElementById('refreshBtn').addEventListener('click', () => {
+  loadAll();
+  loadCompras();
+  loadInstagram();
+  loadSeguimiento();
+  loadAnunciosMeta();
+  loadCashback();
+  loadMetas();
+});
 
 function renderSetupCard(missing){
   const card = document.getElementById('setupCard');
@@ -351,8 +380,7 @@ function esNegocio(categoria, nota){
 let cashback = [];
 function loadCashback(){
   if(!cfg.WEBHOOK_URL) return;
-  fetch(cfg.WEBHOOK_URL + '?action=cashback&_cb=' + Date.now(), {cache:'no-store'})
-    .then(r => r.json())
+  fetchJsonConReintento(cfg.WEBHOOK_URL + '?action=cashback&_cb=' + Date.now())
     .then(resp => {
       cashback = ((resp && resp.cashback) ? resp.cashback : []).map(c => ({
         date: parseDateSmart(c.date), amount: Number(c.amount)||0, note: c.note||'',
@@ -774,8 +802,7 @@ function migrarMetasLocalStorageUnaVez(){
 
 function loadMetas(){
   if(!cfg.WEBHOOK_URL) return;
-  fetch(cfg.WEBHOOK_URL + '?action=metas&_cb=' + Date.now(), {cache:'no-store'})
-    .then(r => r.json())
+  fetchJsonConReintento(cfg.WEBHOOK_URL + '?action=metas&_cb=' + Date.now())
     .then(resp => {
       const list = (resp && resp.metas) ? resp.metas : [];
       metas = {};
@@ -1639,8 +1666,7 @@ function renderAds(data, mk){
 let anunciosMeta = [];
 function loadAnunciosMeta(){
   if(!cfg.WEBHOOK_URL) return;
-  fetch(cfg.WEBHOOK_URL + '?action=anunciosMeta&_cb=' + Date.now(), {cache:'no-store'})
-    .then(r => r.json())
+  fetchJsonConReintento(cfg.WEBHOOK_URL + '?action=anunciosMeta&_cb=' + Date.now())
     .then(resp => {
       anunciosMeta = ((resp && resp.anunciosMeta) ? resp.anunciosMeta : []).map(a => ({
         date: parseDateSmart(a.fecha), anuncio: a.anuncio, campana: a.campana,
@@ -2804,8 +2830,7 @@ function renderTop(stocks, data){
    todavía, la tarjeta se queda oculta (no molesta). */
 function loadInstagram(){
   if(!cfg.WEBHOOK_URL) return;
-  fetch(cfg.WEBHOOK_URL + '?action=instagram&_cb=' + Date.now(), {cache:'no-store'})
-    .then(r => r.json())
+  fetchJsonConReintento(cfg.WEBHOOK_URL + '?action=instagram&_cb=' + Date.now())
     .then(resp => { if(resp && resp.instagram) renderInstagram(resp.instagram); })
     .catch(() => {});
 }
@@ -2934,8 +2959,7 @@ function segTrackUrl(tracking, link, proveedor){
 function loadSeguimiento(){
   const box = document.getElementById('segList');
   if(!cfg.WEBHOOK_URL){ if(box) box.innerHTML = needCfg('WEBHOOK_URL'); return; }
-  fetch(cfg.WEBHOOK_URL + '?action=seguimiento&_cb=' + Date.now(), {cache:'no-store'})
-    .then(r => r.json())
+  fetchJsonConReintento(cfg.WEBHOOK_URL + '?action=seguimiento&_cb=' + Date.now())
     .then(resp => {
       seguimiento = (resp && resp.seguimiento) ? resp.seguimiento : [];
       renderSeguimiento();
@@ -3284,8 +3308,7 @@ let compras = [];
 function loadCompras(){
   const box = document.getElementById('comprasList');
   if(!cfg.WEBHOOK_URL){ if(box) box.innerHTML = needCfg('WEBHOOK_URL'); return; }
-  fetch(cfg.WEBHOOK_URL + '?action=compras&_cb=' + Date.now(), {cache:'no-store'})
-    .then(r => r.json())
+  fetchJsonConReintento(cfg.WEBHOOK_URL + '?action=compras&_cb=' + Date.now())
     .then(resp => {
       compras = (resp && resp.compras) ? resp.compras : [];
       renderCompras();
