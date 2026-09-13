@@ -848,6 +848,30 @@ let metaMesMetrica = 'ventas';
 try{ metaMesMetrica = localStorage.getItem('timeless_metames_metrica') || 'ventas'; }catch(e){}
 if(['ventas','ganancia'].indexOf(metaMesMetrica) === -1) metaMesMetrica = 'ventas';
 
+// Cómo cerró la meta del MES ANTERIOR (si tenía una configurada) — para que
+// no se pierda en silencio al pasar de mes. Solo se muestra mientras no hayas
+// puesto todavía la meta de ESTE mes: una vez la pones, ya estás mirando para
+// adelante, no hace falta seguir recordándotelo.
+function metaMesResumenAnteriorHtml(data){
+  const hoy = new Date();
+  const prevFecha = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+  const prevKey = monthKey(prevFecha);
+  const prevMeta = metas['mes-' + prevKey];
+  if(!prevMeta || !prevMeta.monto) return '';
+
+  const prevNombre = cap(prevFecha.toLocaleDateString('es-PE', {month:'long'}));
+  const detPrev = data.ventasDetalle ? getVentasDetalle(data).filter(v => monthKey(v.date) === prevKey) : [];
+  const vendidoPrev = detPrev.reduce((s,v) => s + v.venta, 0);
+  const cumplida = vendidoPrev >= prevMeta.monto;
+
+  if(cumplida){
+    return '<div class="metames-note"><span class="ok">✓ ' + prevNombre + ' cerró con la meta cumplida:</span> vendiste S/ ' +
+      fmt0(vendidoPrev) + ' de S/ ' + fmt0(prevMeta.monto) + '.</div>';
+  }
+  return '<div class="metames-note"><span class="bad">' + prevNombre + ' cerró sin llegar a la meta:</span> vendiste S/ ' +
+    fmt0(vendidoPrev) + ' de S/ ' + fmt0(prevMeta.monto) + ' (faltaron S/ ' + fmt0(prevMeta.monto - vendidoPrev) + ').</div>';
+}
+
 function renderMetaMes(data){
   const bodyEl = document.getElementById('metaMesBody');
   const input = document.getElementById('metaMesInput');
@@ -874,7 +898,8 @@ function renderMetaMes(data){
   if(monthLbl) monthLbl.textContent = mesNombre;
 
   if(!metaMesValor || metaMesValor <= 0){
-    bodyEl.innerHTML = '<div class="metames-empty">Escribe arriba cuánto quieres vender este mes para ver tu avance.</div>';
+    bodyEl.innerHTML = metaMesResumenAnteriorHtml(data) +
+      '<div class="metames-empty">Escribe arriba cuánto quieres vender este mes para ver tu avance.</div>';
     return;
   }
 
@@ -1094,6 +1119,17 @@ function metaPersoProgresoHtml(c, modo){
       // Todas las paradas, incluida la meta final, ya están cubiertas.
       html += '<div class="metames-big"><span class="mono">✓</span><span class="metames-goal">meta total S/ ' + fmt0(m.monto) + ' cubierta</span></div>' +
         '<div class="proj-bar"><div class="proj-bar-fill" style="width:100%"></div></div>';
+    } else if(target.fecha < hoy){
+      // El plazo de esta parada (siempre la meta total: si quedara algún hito
+      // intermedio pendiente, idxDesde lo habría encontrado antes) ya pasó sin
+      // cubrirla — no tiene sentido seguir pidiendo un "ritmo de hoy" para una
+      // fecha que ya no existe, así que se avisa igual que en "Meta total".
+      const acumTarget = acumHasta(target.fecha);
+      const falta = Math.max(0, target.monto - acumTarget);
+      const pct = Math.min(100, target.monto > 0 ? acumTarget / target.monto * 100 : 0);
+      html += '<div class="metames-big"><span class="mono">S/ ' + fmt0(acumTarget) + '</span><span class="metames-goal">de S/ ' + fmt0(target.monto) + '</span></div>' +
+        '<div class="proj-bar"><div class="proj-bar-fill" style="width:' + pct + '%"></div></div>' +
+        '<div class="metames-note"><span class="bad">Venció el ' + fCorto(target.fecha) + '.</span> Te faltaron S/ ' + fmt0(falta) + '.</div>';
     } else {
       const acumTarget = acumHasta(target.fecha);
       const dias = diasHasta(target.fecha);
