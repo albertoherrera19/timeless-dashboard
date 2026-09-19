@@ -2382,6 +2382,32 @@ let mesesMetric = 'util';
 try{ mesesMetric = localStorage.getItem('timeless_meses_metric') || 'util'; }catch(e){}
 if(mesesMetric !== 'util' && mesesMetric !== 'ing') mesesMetric = 'util';
 
+// Acumulado del AÑO EN CURSO, solo de ventas de producto (sin restar gastos):
+// cuánto llevas vendido y cuánta ganancia neta te dejó esa venta. Va arriba de
+// "Mes a mes" porque es el contexto anual de esas mismas barras.
+function renderYtd(ventas){
+  const box = document.getElementById('ytdStrip');
+  if(!box) return;
+  const anio = new Date().getFullYear();
+  const delAnio = ventas.filter(v => v.date.getFullYear() === anio);
+  if(delAnio.length === 0){ box.innerHTML = ''; return; }
+
+  const ing = delAnio.reduce((s,v) => s + v.ingresos, 0);
+  const gn  = delAnio.reduce((s,v) => s + v.gananciaNeta, 0);
+  const margen = ing > 0 ? gn / ing * 100 : 0;
+  // Meses con venta, para el promedio (no divide entre 12 si recién vas por setiembre).
+  const meses = new Set(delAnio.filter(v => v.ingresos > 0).map(v => monthKey(v.date))).size || 1;
+
+  box.innerHTML =
+    '<div class="ytd-title">Acumulado ' + anio + '</div>' +
+    '<div class="ytd-items">' +
+      '<div class="ytd-item"><span class="ytd-v mono">S/ ' + fmt0(ing) + '</span><span class="ytd-l">Vendido en el año</span></div>' +
+      '<div class="ytd-item"><span class="ytd-v mono ok">S/ ' + fmt0(gn) + '</span><span class="ytd-l">Ganancia neta de ventas</span></div>' +
+      '<div class="ytd-item"><span class="ytd-v mono">' + fmt0(margen) + '%</span><span class="ytd-l">Margen del año</span></div>' +
+      '<div class="ytd-item"><span class="ytd-v mono">S/ ' + fmt0(ing/meses) + '</span><span class="ytd-l">Promedio por mes<br>(' + meses + ' mes' + (meses===1?'':'es') + ')</span></div>' +
+    '</div>';
+}
+
 function renderMeses(ventas, gastos, data){
   const barsBox = document.getElementById('monthsBars');
   const listBox = document.getElementById('monthsList');
@@ -2393,6 +2419,8 @@ function renderMeses(ventas, gastos, data){
 
   document.querySelectorAll('#mesesToggle button').forEach(b =>
     b.classList.toggle('active', b.getAttribute('data-metric') === mesesMetric));
+
+  renderYtd(ventas);
 
   // Sigue el mismo modo del hero: 'negocio' resta solo gastos de negocio;
   // 'todo' resta también los personales.
