@@ -588,11 +588,13 @@ function renderAll(data, missing){
   const pub = getPublicidad(data);
   const stocks = getStocks(data);
   LAST = {ventas, gastos, pub, stocks, data};
+  ULTIMA_VENTA = getUltimaVentaPorProducto(data);
   detectarRestockPorStock(stocks);
   buildMonthOptions(ventas, gastos);
   renderHero(ventas, gastos, data, selectedMonthKey);
   renderProyeccion(ventas, stocks, data, selectedMonthKey, gastos);
   renderStock(stocks, data, gastos);
+  renderCatalogo(stocks, data, gastos);
   renderMeses(ventas, gastos, data);
   renderTop(stocks, data);
   renderRecent(data);
@@ -2205,7 +2207,9 @@ function getPendientesDeStock(stocks, canjes, vendidosHist){
         // Nunca aparece en tu historial de Ventas -> es un producto nuevo (no
         // un restock de algo que ya vendías), para mostrar el sello "Nuevo".
         nuevo: !vendidosHist[normProducto(s.producto)],
-        fechaPedido: s.fechaPedido || null,
+        // null si la fecha es de un bloque viejo (ver fechaPedidoFiable): así
+        // no dice "pedido hace 100 días" de un restock que pediste esta semana.
+        fechaPedido: fechaPedidoFiable(s) ? s.fechaPedido : null,
         plataforma: s.plataforma || '',
       };
     });
@@ -3030,6 +3034,181 @@ function loadSeguimiento(){
     })
     .catch(() => { if(box) box.innerHTML = '<div class="empty">No se pudo cargar el seguimiento.</div>'; });
 }
+
+// ---------- CATÁLOGO COMPLETO ----------
+// Lista TODO lo que vendes, tengas stock o no. Contesta dos preguntas que el
+// bloque de Inventario no contesta, porque ese solo muestra lo que tiene
+// stock: hace cuánto se agotó algo, y si ya lo volviste a pedir.
+//
+// "Agotado hace X" se mide desde la ÚLTIMA VENTA del producto: cuando el
+// stock llega a 0 es porque lo vendiste, así que esa última venta ES el día
+// en que se acabó. La hoja no guarda histórico de stock, así que no hay dato
+// más fiel que ese.
+function getUltimaVentaPorProducto(data){
+  const out = {};
+  getVentasDetalle(data).forEach(v => {
+    // splitCombo: una venta "A + B" cuenta como última venta de A y de B.
+    splitCombo(v.producto).forEach(p => {
+      const key = normProducto(p);
+      if(!key) return;
+      if(!out[key] || v.date > out[key]) out[key] = v.date;
+    });
+  });
+  return out;
+}
+
+// Última venta por producto, recalculada en cada renderAll. La comparten el
+// Catálogo y "Pedidos por llegar" para validar la fecha de pedido.
+let ULTIMA_VENTA = {};
+
+// La hoja guarda UNA sola "Fecha pedido" por producto. Cuando hay varios
+// bloques en el Excel (un restock encima de un pedido viejo) esa fecha puede
+// quedarse en la del bloque VIEJO: sync-ventas.ps1 la saca del texto dd/mm del
+// bloque de color de la columna A, y si la fila del restock cae en un bloque
+// sin fecha, hereda la del pedido anterior. Pasó con Collar spiderman: V39
+// (20u, 16/06) + V40 (7u) salía "pedido hace 3 meses".
+//
+// La señal de que está desfasada: el producto siguió vendiéndose DESPUÉS de
+// esa fecha y recién entonces se agotó. O sea que ese pedido ya llegó y se
+// vendió, y lo que está en camino es otro más nuevo cuya fecha no tenemos.
+// Ahí es mejor no mostrar fecha que mostrar una falsa.
+function fechaPedidoFiable(s){
+  if(!s.fechaPedido) return false;
+  const uv = ULTIMA_VENTA[normProducto(s.producto)];
+  return !uv || dayKey(s.fechaPedido) >= dayKey(uv);
+}
+
+// "hace X" legible: a partir del mes ya no sirve contar días sueltos.
+function fmtHaceDias(dias){
+  if(dias == null) return '';
+  if(dias <= 0) return 'hoy';
+  if(dias === 1) return 'ayer';
+  if(dias < 30) return 'hace ' + dias + ' días';
+  const meses = Math.round(dias / 30);
+  if(meses < 12) return 'hace ' + meses + (meses === 1 ? ' mes' : ' meses');
+  const años = Math.floor(dias / 365);
+  const resto = Math.round((dias - años * 365) / 30);
+  return 'hace ' + años + (años === 1 ? ' año' : ' años') + (resto > 0 ? ' y ' + resto + 'm' : '');
+}
+
+const CAT_ORDEN = {agotado: 0, camino: 1, nuevo: 2, stock: 3};
+
+function getCatalogo(stocks, data, gastos){
+  const canjes = getCanjesPorProducto(gastos || [], stocks);
+  const ultimaVenta = ULTIMA_VENTA;
+  const hoy = dayKey(new Date());
+  return stocks
+    // precio > 0 deja fuera materiales e insumos (bolsas, empaques): se
+    // compran pero no se venden, así que no son catálogo.
+    .filter(s => s.precio > 0)
+    .map(s => {
+      const key = normProducto(s.producto);
+      const canjeado = canjes[key] || 0;
+      // Mismo cálculo que getPendientesDeStock: lo pedido que todavía no está
+      // ni en stock ni vendido ni canjeado sigue en camino.
+      const pendiente = s.cantidadPedido - s.stock - s.vendidos - canjeado;
+      const enCamino = pendiente > 0;
+      const uv = ultimaVenta[key] || null;
+      const diasAgotado = (s.stock <= 0 && uv) ? Math.round((hoy - dayKey(uv)) / 86400000) : null;
+      const diasPedido = (enCamino && fechaPedidoFiable(s)) ? Math.round((hoy - dayKey(s.fechaPedido)) / 86400000) : null;
+      let estado;
+      if(s.stock > 0) estado = 'stock';
+      // "Nuevo" = nunca llegó ni se vendió, y viene en camino por primera vez.
+      // Pide las DOS señales: Vendidos en 0 no basta, porque esa columna cuenta
+      // el bloque actual y da 0 en un producto que ya vendiste hace meses. Si
+      // hay una última venta registrada, no es nuevo: es un reingreso.
+      else if(s.vendidos <= 0 && !uv && enCamino) estado = 'nuevo';
+      else if(enCamino) estado = 'camino';
+      else estado = 'agotado';
+      return {
+        producto: s.producto, stock: s.stock, estado,
+        diasAgotado, diasPedido, plataforma: s.plataforma,
+        pendiente: Math.max(0, Math.round(pendiente)),
+      };
+    })
+    .sort((a, b) => {
+      if(CAT_ORDEN[a.estado] !== CAT_ORDEN[b.estado]) return CAT_ORDEN[a.estado] - CAT_ORDEN[b.estado];
+      if(a.estado === 'stock') return a.stock - b.stock;
+      // Dentro de agotados y de los que vienen en camino: primero el que lleva
+      // más tiempo esperando. Los que no tienen fecha van al final.
+      const ka = a.estado === 'agotado' ? a.diasAgotado : a.diasPedido;
+      const kb = b.estado === 'agotado' ? b.diasAgotado : b.diasPedido;
+      if(ka == null && kb == null) return a.producto.localeCompare(b.producto);
+      if(ka == null) return 1;
+      if(kb == null) return -1;
+      return kb - ka;
+    });
+}
+
+function catalogoFilaHtml(c){
+  let badge, badgeCls, meta;
+  if(c.estado === 'stock'){
+    badge = 'En stock'; badgeCls = 'ok';
+    meta = fmt0(c.stock) + ' und';
+  } else if(c.estado === 'nuevo'){
+    badge = 'Nuevo'; badgeCls = 'new';
+    meta = c.diasPedido != null ? 'pedido ' + fmtHaceDias(c.diasPedido) : 'pedido en camino';
+  } else if(c.estado === 'camino'){
+    badge = c.diasAgotado != null ? 'Agotado ' + fmtHaceDias(c.diasAgotado) : 'Agotado'; badgeCls = 'warn';
+    meta = c.diasPedido != null ? 'restock ' + fmtHaceDias(c.diasPedido) : 'restock en camino';
+  } else {
+    badge = c.diasAgotado != null ? 'Agotado ' + fmtHaceDias(c.diasAgotado) : 'Sin ventas aún'; badgeCls = 'bad';
+    meta = '';
+  }
+  return '<div class="cat-row ' + badgeCls + '-row">' +
+      '<span class="cat-name">' + esc(c.producto) + '</span>' +
+      '<span class="cat-badge ' + badgeCls + '">' + esc(badge) + '</span>' +
+      '<span class="cat-meta">' + esc(meta) + '</span>' +
+    '</div>';
+}
+
+const CATALOGO_PREVIEW = 10;
+
+function renderCatalogo(stocks, data, gastos){
+  const box = document.getElementById('catalogoList');
+  const resumen = document.getElementById('catalogoResumen');
+  if(!box) return;
+  if(!data.stocks){ box.innerHTML = needCfg('Stocks'); if(resumen) resumen.textContent = ''; return; }
+  const cat = getCatalogo(stocks, data, gastos);
+  CATALOGO_CACHE = cat;
+  if(cat.length === 0){ box.innerHTML = '<div class="empty">Aún no hay productos en el catálogo.</div>'; if(resumen) resumen.textContent = ''; return; }
+
+  const nStock = cat.filter(c => c.estado === 'stock').length;
+  const nCamino = cat.filter(c => c.estado === 'camino' || c.estado === 'nuevo').length;
+  const nAgotado = cat.filter(c => c.estado === 'agotado').length;
+  if(resumen){
+    resumen.textContent = nStock + ' en stock · ' + nAgotado + ' agotados' + (nCamino ? ' · ' + nCamino + ' en camino' : '');
+  }
+
+  // Primero los agotados hace más tiempo: es la parte accionable ("hace
+  // cuánto no traigo esto"). Lo que tiene stock no necesita que lo mires.
+  const visibles = cat.slice(0, CATALOGO_PREVIEW);
+  const resto = cat.length - visibles.length;
+  box.innerHTML = visibles.map(catalogoFilaHtml).join('') +
+    (resto > 0 ? '<button type="button" class="cat-more" id="catalogoVerTodo">Ver catálogo completo (' + cat.length + ')</button>' : '');
+
+  const btn = document.getElementById('catalogoVerTodo');
+  if(btn) btn.addEventListener('click', abrirCatalogoFs);
+}
+
+let CATALOGO_CACHE = [];
+
+function renderCatalogoFsBody(){
+  const cat = CATALOGO_CACHE;
+  if(cat.length === 0) return '<div class="empty">Aún no hay productos en el catálogo.</div>';
+  const grupo = (titulo, lista) => lista.length === 0 ? '' :
+    '<div class="table-title">' + titulo + ' (' + lista.length + ')</div>' +
+    '<div class="cat-list">' + lista.map(catalogoFilaHtml).join('') + '</div>';
+  return grupo('Agotados', cat.filter(c => c.estado === 'agotado')) +
+    grupo('En camino', cat.filter(c => c.estado === 'camino' || c.estado === 'nuevo')) +
+    grupo('En stock', cat.filter(c => c.estado === 'stock'));
+}
+
+function abrirCatalogoFs(){
+  openFullscreen('Catálogo completo', renderCatalogoFsBody());
+}
+
+document.getElementById('catalogoHeaderBtn').addEventListener('click', abrirCatalogoFs);
 
 // "hace X días" desde una fecha ISO (misma idea que fmtPedidoMeta pero suelto).
 function segHace(iso){
