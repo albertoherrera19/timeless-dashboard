@@ -2120,15 +2120,23 @@ function renderProyeccion(ventas, stocks, data, mk, gastos){
   // El número grande de "vender todo" ahora es el EFECTIVO (precio de venta × stock),
   // que es de donde Alberto reinvierte — no la ganancia neta.
   document.getElementById('projPosible').textContent = 'S/ ' + fmt(valorVenta);
-  document.getElementById('projBarFill').style.width =
-    (valorVenta > 0 ? Math.min(100, invertido/valorVenta*100) : 0) + '%';
 
   const stockInvertido = getStockInvertido(stocks);
 
+  // La barra muestra qué parte de esa venta es solo recuperar el costo. Va con
+  // stockInvertido (el costo de las unidades que TIENES), no con `invertido`,
+  // que es lo que costó el pedido entero — incluidas las unidades ya vendidas.
+  document.getElementById('projBarFill').style.width =
+    (valorVenta > 0 ? Math.min(100, stockInvertido/valorVenta*100) : 0) + '%';
+
+  // El desglose de "si vendes todo tu stock": costo + ganancia = valorVenta.
+  // Antes había una fila "Recuperas lo invertido" que sumaba `invertido` (el
+  // pedido completo) y por eso no cuadraba: con el dark knight contaba los
+  // S/912 de las 80 unidades pedidas cuando solo quedan 18 en mano. Se quitó:
+  // lo que recuperas ES el stock invertido de la fila de arriba.
   let extraHtml =
-    '<div class="r-row destacada"><span class="r-name">📦 Stock invertido (lo que tienes en mano ahora)</span><span class="r-amt">S/ ' + fmt(stockInvertido) + '</span></div>' +
-    '<div class="r-row"><span class="r-name">↳ Recuperas lo invertido</span><span class="r-amt">S/ ' + fmt(invertido) + '</span></div>' +
-    '<div class="r-row"><span class="r-name">↳ De eso, tu ganancia neta</span><span class="r-amt plus">S/ ' + fmt(posible) + '</span></div>' +
+    '<div class="r-row destacada"><span class="r-name">📦 Stock invertido (lo que recuperas al venderlo)</span><span class="r-amt">S/ ' + fmt(stockInvertido) + '</span></div>' +
+    '<div class="r-row"><span class="r-name">↳ Lo demás es tu ganancia neta</span><span class="r-amt plus">S/ ' + fmt(posible) + '</span></div>' +
     '<div class="r-row"><span class="r-name">Unidades en stock</span><span class="r-amt">' + fmt0(unidades) + '</span></div>';
 
   // Si además te llega TODO lo pendiente (pedidos ya invertidos con stock aún
@@ -3078,14 +3086,21 @@ function fechaPedidoFiable(s){
   return !uv || dayKey(s.fechaPedido) >= dayKey(uv);
 }
 
-// "hace X" en DÍAS siempre: "hace 3 meses" se leía cómodo pero escondía la
-// diferencia entre 61 y 89 días, que para decidir un restock sí importa.
-// Si algún día se quiere volver a meses, este es el único sitio que tocar.
+// "hace X días", y a partir de mes y medio añade el mes aproximado al costado:
+// "hace 77 días · ~3 meses". El día exacto es el que sirve para decidir un
+// restock (entre 61 y 89 hay casi un mes), y el "~3 meses" es para ubicarse
+// rápido sin hacer la división mentalmente.
+const HACE_MESES_DESDE = 45;
 function fmtHaceDias(dias){
   if(dias == null) return '';
   if(dias <= 0) return 'hoy';
   if(dias === 1) return 'ayer';
-  return 'hace ' + fmt0(dias) + ' días';
+  const txt = 'hace ' + fmt0(dias) + ' días';
+  if(dias < HACE_MESES_DESDE) return txt;
+  const meses = Math.round(dias / 30);
+  if(meses < 24) return txt + ' · ~' + meses + (meses === 1 ? ' mes' : ' meses');
+  const años = (dias / 365).toFixed(1).replace(/\.0$/, '');
+  return txt + ' · ~' + años + (años === '1' ? ' año' : ' años');
 }
 
 // Orden dentro de cada grupo: primero lo que tienes, al final lo agotado.
