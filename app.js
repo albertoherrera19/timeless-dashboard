@@ -3078,20 +3078,58 @@ function fechaPedidoFiable(s){
   return !uv || dayKey(s.fechaPedido) >= dayKey(uv);
 }
 
-// "hace X" legible: a partir del mes ya no sirve contar días sueltos.
+// "hace X" en DÍAS siempre: "hace 3 meses" se leía cómodo pero escondía la
+// diferencia entre 61 y 89 días, que para decidir un restock sí importa.
+// Si algún día se quiere volver a meses, este es el único sitio que tocar.
 function fmtHaceDias(dias){
   if(dias == null) return '';
   if(dias <= 0) return 'hoy';
   if(dias === 1) return 'ayer';
-  if(dias < 30) return 'hace ' + dias + ' días';
-  const meses = Math.round(dias / 30);
-  if(meses < 12) return 'hace ' + meses + (meses === 1 ? ' mes' : ' meses');
-  const años = Math.floor(dias / 365);
-  const resto = Math.round((dias - años * 365) / 30);
-  return 'hace ' + años + (años === 1 ? ' año' : ' años') + (resto > 0 ? ' y ' + resto + 'm' : '');
+  return 'hace ' + fmt0(dias) + ' días';
 }
 
-const CAT_ORDEN = {agotado: 0, camino: 1, nuevo: 2, stock: 3};
+// Orden dentro de cada grupo: primero lo que tienes, al final lo agotado.
+const CAT_ORDEN = {stock: 0, camino: 1, nuevo: 2, agotado: 3};
+
+// ---------- Categorías de producto ----------
+// Salen del propio nombre, que siempre empieza por el tipo ("Cinturon dark
+// knight", "Collar starboy", "Pant chain skeleton", "Anillo demon wings
+// duki"). Lo que no calce cae en "Otros" y se ve igual, no se pierde.
+const CAT_TIPOS = [
+  {id:'cinturones',  nombre:'Cinturones',  rx:/^cinturon/},
+  {id:'collares',    nombre:'Collares',    rx:/^collar/},
+  {id:'pantchains',  nombre:'Pant chains', rx:/^pant\s*chain/},
+  {id:'anillos',     nombre:'Anillos',     rx:/^anillo/},
+  {id:'lentes',      nombre:'Lentes',      rx:/^lente/},
+];
+const CAT_OTROS = {id:'otros', nombre:'Otros'};
+function catTipoDe(producto){
+  const n = normName(producto);
+  for(let i = 0; i < CAT_TIPOS.length; i++){
+    if(CAT_TIPOS[i].rx.test(n)) return CAT_TIPOS[i];
+  }
+  return CAT_OTROS;
+}
+
+// Filtros y vista del catálogo: se guardan por dispositivo.
+const CAT_FILTROS_KEY = 'timeless_cat_filtros';
+const CAT_VISTA_KEY = 'timeless_cat_vista';
+let catFiltros = {stock:true, camino:true, agotado:true};
+let catVista = 'estado'; // 'estado' | 'categoria'
+try{
+  const f = JSON.parse(localStorage.getItem(CAT_FILTROS_KEY));
+  if(f && typeof f === 'object') catFiltros = Object.assign(catFiltros, f);
+  const v = localStorage.getItem(CAT_VISTA_KEY);
+  if(v === 'estado' || v === 'categoria') catVista = v;
+}catch(e){}
+function guardarCatPrefs(){
+  try{
+    localStorage.setItem(CAT_FILTROS_KEY, JSON.stringify(catFiltros));
+    localStorage.setItem(CAT_VISTA_KEY, catVista);
+  }catch(e){}
+}
+// Para filtrar, "nuevo" y "camino" son lo mismo: las dos son cosas que vienen.
+function catGrupoDe(estado){ return estado === 'nuevo' ? 'camino' : estado; }
 
 function getCatalogo(stocks, data, gastos){
   const canjes = getCanjesPorProducto(gastos || [], stocks);
@@ -3163,49 +3201,129 @@ function catalogoFilaHtml(c){
 }
 
 const CATALOGO_PREVIEW = 10;
+let CATALOGO_CACHE = [];
+
+function catFiltrado(){
+  return CATALOGO_CACHE.filter(c => catFiltros[catGrupoDe(c.estado)]);
+}
+
+// Los tres chips de filtro + el botón que alterna estado/categoría. Van en el
+// mismo bloque para que la barra se vea igual en la tarjeta y en pantalla
+// completa; los dos sitios los vuelven a pintar con la misma función.
+function catControlesHtml(){
+  const n = {stock:0, camino:0, agotado:0};
+  CATALOGO_CACHE.forEach(c => { n[catGrupoDe(c.estado)]++; });
+  const chip = (clave, texto, cls) =>
+    '<button type="button" class="cat-chip ' + cls + (catFiltros[clave] ? ' on' : '') +
+      '" data-filtro="' + clave + '">' + texto + ' <span class="cat-chip-n">' + n[clave] + '</span></button>';
+  return '<div class="cat-controls">' +
+      chip('stock', 'En stock', 'ok') +
+      chip('camino', 'En camino', 'warn') +
+      chip('agotado', 'Agotados', 'bad') +
+      '<button type="button" class="cat-vista" data-vista="1">' +
+        (catVista === 'estado' ? 'Por estado ⇄' : 'Por categoría ⇄') +
+      '</button>' +
+    '</div>';
+}
+
+// Agrupa según la vista elegida. Devuelve [{titulo, items}] ya ordenado.
+function catGrupos(lista){
+  if(catVista === 'categoria'){
+    const orden = CAT_TIPOS.concat([CAT_OTROS]);
+    return orden.map(t => ({
+      titulo: t.nombre,
+      items: lista.filter(c => catTipoDe(c.producto).id === t.id),
+    })).filter(g => g.items.length > 0);
+  }
+  return [
+    {titulo:'En stock', items: lista.filter(c => c.estado === 'stock')},
+    {titulo:'En camino', items: lista.filter(c => catGrupoDe(c.estado) === 'camino')},
+    {titulo:'Agotados', items: lista.filter(c => c.estado === 'agotado')},
+  ].filter(g => g.items.length > 0);
+}
+
+// tope = null muestra todo (pantalla completa); con número corta la lista de
+// la tarjeta sin romper los grupos.
+function catGruposHtml(lista, tope){
+  const grupos = catGrupos(lista);
+  if(grupos.length === 0) return '<div class="empty">Nada que mostrar con estos filtros.</div>';
+  let quedan = tope == null ? Infinity : tope;
+  let html = '';
+  for(let i = 0; i < grupos.length && quedan > 0; i++){
+    const g = grupos[i];
+    const items = g.items.slice(0, quedan);
+    quedan -= items.length;
+    html += '<div class="cat-grupo">' + esc(g.titulo) + ' <span class="cat-grupo-n">' + g.items.length + '</span></div>' +
+      items.map(catalogoFilaHtml).join('');
+  }
+  return html;
+}
+
+// Un solo sitio que vuelve a pintar tarjeta y pantalla completa, para que al
+// tocar un filtro cambien los dos a la vez.
+function repintarCatalogo(){
+  const box = document.getElementById('catalogoList');
+  if(box) box.innerHTML = catalogoCardHtml();
+  const fs = document.getElementById('catalogoFsBody');
+  if(fs) fs.innerHTML = catControlesHtml() + catGruposHtml(catFiltrado(), null);
+}
+
+function catalogoCardHtml(){
+  const lista = catFiltrado();
+  const resto = lista.length - Math.min(lista.length, CATALOGO_PREVIEW);
+  return catControlesHtml() +
+    catGruposHtml(lista, CATALOGO_PREVIEW) +
+    (resto > 0 || lista.length > 0
+      ? '<button type="button" class="cat-more" data-vertodo="1">Ver catálogo completo (' + lista.length + ')</button>'
+      : '');
+}
 
 function renderCatalogo(stocks, data, gastos){
   const box = document.getElementById('catalogoList');
   const resumen = document.getElementById('catalogoResumen');
   if(!box) return;
   if(!data.stocks){ box.innerHTML = needCfg('Stocks'); if(resumen) resumen.textContent = ''; return; }
-  const cat = getCatalogo(stocks, data, gastos);
-  CATALOGO_CACHE = cat;
-  if(cat.length === 0){ box.innerHTML = '<div class="empty">Aún no hay productos en el catálogo.</div>'; if(resumen) resumen.textContent = ''; return; }
-
-  const nStock = cat.filter(c => c.estado === 'stock').length;
-  const nCamino = cat.filter(c => c.estado === 'camino' || c.estado === 'nuevo').length;
-  const nAgotado = cat.filter(c => c.estado === 'agotado').length;
-  if(resumen){
-    resumen.textContent = nStock + ' en stock · ' + nAgotado + ' agotados' + (nCamino ? ' · ' + nCamino + ' en camino' : '');
+  CATALOGO_CACHE = getCatalogo(stocks, data, gastos);
+  if(CATALOGO_CACHE.length === 0){
+    box.innerHTML = '<div class="empty">Aún no hay productos en el catálogo.</div>';
+    if(resumen) resumen.textContent = '';
+    return;
   }
-
-  // Primero los agotados hace más tiempo: es la parte accionable ("hace
-  // cuánto no traigo esto"). Lo que tiene stock no necesita que lo mires.
-  const visibles = cat.slice(0, CATALOGO_PREVIEW);
-  const resto = cat.length - visibles.length;
-  box.innerHTML = visibles.map(catalogoFilaHtml).join('') +
-    (resto > 0 ? '<button type="button" class="cat-more" id="catalogoVerTodo">Ver catálogo completo (' + cat.length + ')</button>' : '');
-
-  const btn = document.getElementById('catalogoVerTodo');
-  if(btn) btn.addEventListener('click', abrirCatalogoFs);
+  const n = {stock:0, camino:0, agotado:0};
+  CATALOGO_CACHE.forEach(c => { n[catGrupoDe(c.estado)]++; });
+  if(resumen){
+    resumen.textContent = n.stock + ' en stock · ' + n.agotado + ' agotados' +
+      (n.camino ? ' · ' + n.camino + ' en camino' : '');
+  }
+  box.innerHTML = catalogoCardHtml();
 }
 
-let CATALOGO_CACHE = [];
-
-function renderCatalogoFsBody(){
-  const cat = CATALOGO_CACHE;
-  if(cat.length === 0) return '<div class="empty">Aún no hay productos en el catálogo.</div>';
-  const grupo = (titulo, lista) => lista.length === 0 ? '' :
-    '<div class="table-title">' + titulo + ' (' + lista.length + ')</div>' +
-    '<div class="cat-list">' + lista.map(catalogoFilaHtml).join('') + '</div>';
-  return grupo('Agotados', cat.filter(c => c.estado === 'agotado')) +
-    grupo('En camino', cat.filter(c => c.estado === 'camino' || c.estado === 'nuevo')) +
-    grupo('En stock', cat.filter(c => c.estado === 'stock'));
-}
+// Delegación: los botones se vuelven a crear en cada repintado, así que el
+// listener va en el documento y no en cada botón.
+document.addEventListener('click', (ev) => {
+  const chip = ev.target.closest('.cat-chip');
+  if(chip){
+    const clave = chip.getAttribute('data-filtro');
+    // No dejar apagar los tres: una lista vacía no le sirve a nadie.
+    if(catFiltros[clave] && Object.keys(catFiltros).filter(k => catFiltros[k]).length === 1) return;
+    catFiltros[clave] = !catFiltros[clave];
+    guardarCatPrefs();
+    repintarCatalogo();
+    return;
+  }
+  const vista = ev.target.closest('.cat-vista');
+  if(vista){
+    catVista = catVista === 'estado' ? 'categoria' : 'estado';
+    guardarCatPrefs();
+    repintarCatalogo();
+    return;
+  }
+  if(ev.target.closest('[data-vertodo]')) abrirCatalogoFs();
+});
 
 function abrirCatalogoFs(){
-  openFullscreen('Catálogo completo', renderCatalogoFsBody());
+  openFullscreen('Catálogo completo',
+    '<div id="catalogoFsBody">' + catControlesHtml() + catGruposHtml(catFiltrado(), null) + '</div>');
 }
 
 document.getElementById('catalogoHeaderBtn').addEventListener('click', abrirCatalogoFs);

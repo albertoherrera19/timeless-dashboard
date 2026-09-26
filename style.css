@@ -1104,3 +1104,31 @@ footer{
   font-size:12px;font-weight:600;cursor:pointer;
 }
 .cat-more:active{opacity:.7;}
+
+/* Controles del catálogo: filtros por estado + vista estado/categoría */
+.cat-controls{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:2px 0 10px;}
+.cat-chip{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:5px 10px;border-radius:999px;cursor:pointer;
+  font-size:11.5px;font-weight:600;font-family:inherit;
+  /* Apagado: solo el contorno, para que se note de un vistazo cuál está activo. */
+  background:transparent;border:1px solid var(--line);color:var(--muted);
+}
+.cat-chip-n{font-size:10px;opacity:.75;font-variant-numeric:tabular-nums;}
+.cat-chip.on.ok{background:rgba(74,222,128,.16);border-color:transparent;color:var(--ok);}
+.cat-chip.on.warn{background:rgba(251,191,36,.16);border-color:transparent;color:var(--warn);}
+.cat-chip.on.bad{background:rgba(251,113,133,.16);border-color:transparent;color:var(--bad);}
+.cat-chip:active{opacity:.6;}
+.cat-vista{
+  margin-left:auto;padding:5px 10px;border-radius:999px;cursor:pointer;
+  font-size:11.5px;font-weight:600;font-family:inherit;
+  background:var(--chip);border:1px solid var(--line);color:var(--bone);
+}
+.cat-vista:active{opacity:.6;}
+.cat-grupo{
+  display:flex;align-items:center;gap:6px;
+  font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);margin:12px 0 2px;
+}
+.cat-grupo:first-child{margin-top:0;}
+.cat-grupo-n{font-size:10px;opacity:.7;}
