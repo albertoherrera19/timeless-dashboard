@@ -125,12 +125,19 @@ let LAST = null;
 
 /* ---------- Carga de datos ---------- */
 const cfg = (typeof TIMELESS_CONFIG !== 'undefined') ? TIMELESS_CONFIG : {};
+// "Publicidad" (resumen semanal de ads a mano) ya no se descarga: ninguna
+// sección la mostraba — el ROAS y el detalle diario salen de "Campañas", que
+// se llena solo desde Meta Ads. La pestaña sigue en el Sheets por si algún día
+// se retoma; simplemente el dashboard dejó de pedirla en cada carga.
+//
+// "Ventas" (una fila por mes, escrita a mano) pasa a opcional: VentasDetalle
+// la reemplaza mes a mes desde el Excel (ver getVentas). Solo se usaría para
+// un mes que no tenga ninguna fila en VentasDetalle.
 const SOURCES = [
-  {key:'ventas',     cfgKey:'CSV_VENTAS',     tab:'Ventas'},
+  {key:'ventasDetalle', cfgKey:'CSV_VENTASDETALLE', tab:'VentasDetalle'},
   {key:'gastos',     cfgKey:'CSV_GASTOS',     tab:'Gastos'},
-  {key:'publicidad', cfgKey:'CSV_PUBLICIDAD', tab:'Publicidad'},
   {key:'stocks',     cfgKey:'CSV_STOCKS',     tab:'Stocks'},
-  {key:'ventasDetalle', cfgKey:'CSV_VENTASDETALLE', tab:'VentasDetalle', optional:true},
+  {key:'ventas',     cfgKey:'CSV_VENTAS',     tab:'Ventas', optional:true},
   {key:'campanas', cfgKey:'CSV_CAMPANAS', tab:'Campañas', optional:true},
 ];
 
@@ -431,16 +438,8 @@ try{ utilMode = localStorage.getItem('timeless_util_mode') || 'negocio'; }catch(
 let gastosNegocioAbierto = false;
 let gastosPersonalAbierto = false;
 
-function getPublicidad(data){
-  return body(data.publicidad).map(r => ({
-    semana: (r[0]||'').trim(),
-    plataforma: (r[1]||'').trim(),
-    gasto: parseMoney(r[2]),
-    alcance: parseMoney(r[3]),
-    ventas: parseMoney(r[4]),
-    ingreso: parseMoney(r[5]),
-  })).filter(p => p.semana && p.gasto > 0);
-}
+// (getPublicidad se quitó junto con la descarga de la pestaña "Publicidad":
+//  no había ninguna sección que la mostrara. Ver el comentario en SOURCES.)
 
 // Normaliza un nombre de producto para comparar: minúsculas, sin acentos, espacios colapsados.
 function normName(s){
@@ -585,9 +584,8 @@ function detectarRestockPorStock(stocks){
 function renderAll(data, missing){
   const ventas = getVentas(data);
   const gastos = getGastos(data);
-  const pub = getPublicidad(data);
   const stocks = getStocks(data);
-  LAST = {ventas, gastos, pub, stocks, data};
+  LAST = {ventas, gastos, stocks, data};
   ULTIMA_VENTA = getUltimaVentaPorProducto(data);
   detectarRestockPorStock(stocks);
   buildMonthOptions(ventas, gastos);
