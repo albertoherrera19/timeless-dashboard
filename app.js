@@ -458,6 +458,13 @@ function normProducto(s){
 // venta entre ambos productos reales.
 const COMBO_ALIAS = {
   'anillos duki': ['Anillo demon wings duki', 'Anillo angel wings duki'],
+  // Los anillos SIEMPRE se venden en par; solo se anotan por su nombre
+  // completo en el caso raro de vender uno suelto. "Anillos" a secas es lo
+  // mismo que "Anillos duki" (confirmado por Alberto 2026-09-30).
+  'anillos': ['Anillo demon wings duki', 'Anillo angel wings duki'],
+  'anillos angel y demon wings': ['Anillo demon wings duki', 'Anillo angel wings duki'],
+  'collar angel y demon wings': ['Anillo demon wings duki', 'Anillo angel wings duki'],
+  'collar angel y demon wings duki': ['Anillo demon wings duki', 'Anillo angel wings duki'],
 };
 
 // Un mismo producto, anotado en Ventas con nombres distintos al de Stocks (le
@@ -477,6 +484,22 @@ const ALIAS_PRODUCTO = {
   // Detectado 2026-08-26: venta anotada "2 Collares demon cross" (plural) —
   // sin este alias no calzaba con "Collar demon cross" de Stocks.
   'collares demon cross': 'Collar demon cross',
+  // Confirmados por Alberto el 2026-09-30, todos de ene-jun (después ya
+  // escribe el nombre completo). "Rosary chain" a secas era SIEMPRE el
+  // silver: el dorado ni existía todavía cuando lo anotaba así.
+  'collar rosary chain': 'Collar silver rosary chain',
+  'rosary chain': 'Collar silver rosary chain',
+  'cinto dark knight': 'Cinturon dark knight',
+  'cinturon white chrome hearts': 'Cinturon chrome hearts',
+  'cinto white chrome hearts': 'Cinturon chrome hearts',
+  'cinto chrome hearts': 'Cinturon chrome hearts',
+  'pant chain chrome heartrs': 'Pant chain chrome hearts',
+  'collares chrome hearts': 'Collar chrome hearts',
+  'collar chrome hearst': 'Collar chrome hearts',
+  // OJO: "cinturon starboy" NO se mapea. Era un cinturón distinto que ya no
+  // se trae, y existe en paralelo el "Collar starboy", que sí está vigente.
+  // La regla de Alberto: lo que va después de "collar"/"cinturon"/"pant
+  // chain" es el nombre del producto, así que son dos productos distintos.
 };
 
 // Cantidad al inicio de una pieza ("2 Cinturon hitboy", "2x Cinturon hitboy"):
@@ -810,8 +833,8 @@ function loadMetas(){
       migrarMetasLocalStorageUnaVez();
       // Refresca lo que ya se había pintado con valores en 0/vacíos (loadAll
       // corre antes de que esto responda) sin esperar a que cambie el mes.
-      metaMesValor = leerMetaMesValor(monthKey(new Date()));
-      metaMesUltimoMes = monthKey(new Date());
+      metaMesValor = leerMetaMesValor(metaMesKeyActivo());
+      metaMesUltimoMes = metaMesKeyActivo();
       if(LAST){ renderMetaMes(LAST.data); renderMetaPerso(LAST.data); }
     })
     .catch(() => {});
@@ -830,6 +853,20 @@ if(['dia','bloque','mes'].indexOf(metaMesModo) === -1) metaMesModo = 'dia';
 // metaGuardarRemoto) para que se vea igual desde cualquier dispositivo, no
 // solo en el que la escribiste — antes vivía solo en localStorage.
 function metaMesValorKey(mk){ return 'mes-' + mk; }
+
+// Mes al que le pertenece la tarjeta "Meta del mes": el ELEGIDO en el selector,
+// no el de hoy. Antes todo salía de new Date(), así que al mirar octubre desde
+// setiembre seguías viendo la meta de setiembre — y lo que escribías se
+// guardaba en setiembre. (Detectado 2026-09-30.)
+function metaMesKeyActivo(){ return selectedMonthKey || monthKey(new Date()); }
+
+// Etiqueta del día de referencia cuando el mes elegido todavía no empieza:
+// "mañana" si cae justo mañana, si no "el 1 de octubre".
+function etiquetaDiaFuturo(fecha, hoy){
+  const manana = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 1);
+  if(dayKey(fecha) === dayKey(manana)) return 'mañana';
+  return 'el ' + fecha.getDate() + ' de ' + fecha.toLocaleDateString('es-PE', {month:'long'});
+}
 function leerMetaMesValor(mk){
   const m = metas[metaMesValorKey(mk)];
   return (m && Number(m.monto)) || 0;
@@ -852,9 +889,9 @@ if(['ventas','ganancia'].indexOf(metaMesMetrica) === -1) metaMesMetrica = 'venta
 // no se pierda en silencio al pasar de mes. Solo se muestra mientras no hayas
 // puesto todavía la meta de ESTE mes: una vez la pones, ya estás mirando para
 // adelante, no hace falta seguir recordándotelo.
-function metaMesResumenAnteriorHtml(data){
-  const hoy = new Date();
-  const prevFecha = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+function metaMesResumenAnteriorHtml(data, mk){
+  const [a, m] = (mk || monthKey(new Date())).split('-').map(Number);
+  const prevFecha = new Date(a, m - 2, 1);
   const prevKey = monthKey(prevFecha);
   const prevMeta = metas['mes-' + prevKey];
   if(!prevMeta || !prevMeta.monto) return '';
@@ -878,13 +915,13 @@ function renderMetaMes(data){
   const monthLbl = document.getElementById('metaMesMonthLabel');
   if(!bodyEl) return;
 
-  // Si el mes calendario cambió desde el último render (medianoche, con el
-  // dashboard ya abierto), recarga el valor guardado PARA ESE mes — nunca el
-  // del mes anterior.
-  const curKeyHoy = monthKey(new Date());
-  if(curKeyHoy !== metaMesUltimoMes){
-    metaMesValor = leerMetaMesValor(curKeyHoy);
-    metaMesUltimoMes = curKeyHoy;
+  // Sigue al mes elegido en el selector. Cubre además el cambio de mes a
+  // medianoche con el dashboard abierto: si cambia la llave activa, se recarga
+  // el valor guardado PARA ESE mes — nunca el del mes anterior.
+  const mk = metaMesKeyActivo();
+  if(mk !== metaMesUltimoMes){
+    metaMesValor = leerMetaMesValor(mk);
+    metaMesUltimoMes = mk;
   }
 
   document.querySelectorAll('#metaMesToggle button').forEach(b =>
@@ -894,30 +931,40 @@ function renderMetaMes(data){
   if(input && document.activeElement !== input) input.value = metaMesValor || '';
 
   const hoy = new Date();
-  const mesNombre = cap(hoy.toLocaleDateString('es-PE', {month:'long'}));
+  const [mkAnio, mkMes] = mk.split('-').map(Number);
+  const mesNombre = cap(new Date(mkAnio, mkMes - 1, 1).toLocaleDateString('es-PE', {month:'long'}));
   if(monthLbl) monthLbl.textContent = mesNombre;
 
   if(!metaMesValor || metaMesValor <= 0){
-    bodyEl.innerHTML = metaMesResumenAnteriorHtml(data) +
-      '<div class="metames-empty">Escribe arriba cuánto quieres vender este mes para ver tu avance.</div>';
+    bodyEl.innerHTML = metaMesResumenAnteriorHtml(data, mk) +
+      '<div class="metames-empty">Escribe arriba cuánto quieres vender en ' + mesNombre.toLowerCase() + ' para ver tu avance.</div>';
     return;
   }
 
-  const detMes = data.ventasDetalle ? getVentasDetalle(data).filter(v => monthKey(v.date) === monthKey(hoy)) : [];
+  const detMes = data.ventasDetalle ? getVentasDetalle(data).filter(v => monthKey(v.date) === mk) : [];
   const vendidoMes = detMes.reduce((s,v) => s + v.venta, 0);
   const gananciaMes = detMes.reduce((s,v) => s + v.utilidad, 0);
   // Margen real de lo que llevas vendido este mes; si aún no hay ventas, se usa 0.6 como estimado.
   const margen = vendidoMes > 0 ? gananciaMes / vendidoMes : 0.6;
 
-  const diaHoy = hoy.getDate();
-  const diasDelMes = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0).getDate();
-  const diasRestantes = diasDelMes - diaHoy + 1;
+  // Día de referencia dentro del mes ELEGIDO: hoy si es el mes en curso, el 1
+  // si todavía no empieza, el último si ya cerró. Sin esto, mirar octubre un
+  // 30 de setiembre calculaba "por día" con el día 30 y los días que le
+  // quedaban a setiembre.
+  const mkHoy = monthKey(hoy);
+  const esMesActual = mk === mkHoy;
+  const esFuturo = mk > mkHoy;
+  const esPasado = mk < mkHoy;
+  const diasDelMes = new Date(mkAnio, mkMes, 0).getDate();
+  const diaHoy = esMesActual ? hoy.getDate() : (esFuturo ? 1 : diasDelMes);
+  const diasRestantes = esPasado ? 0 : diasDelMes - diaHoy + 1;
 
   let metaPeriodoVentas, etiqueta, restanPeriodo, detPeriodo;
   if(metaMesModo === 'dia'){
     metaPeriodoVentas = metaMesValor / diasDelMes;
-    detPeriodo = detMes.filter(v => dayKey(v.date) === dayKey(hoy));
-    etiqueta = 'hoy';
+    const diaRef = new Date(mkAnio, mkMes - 1, diaHoy);
+    detPeriodo = detMes.filter(v => dayKey(v.date) === dayKey(diaRef));
+    etiqueta = esMesActual ? 'hoy' : (esFuturo ? etiquetaDiaFuturo(diaRef, hoy) : 'el último día');
     restanPeriodo = 1;
   } else if(metaMesModo === 'bloque'){
     const bloqueIdx = Math.min(2, Math.floor((diaHoy - 1) / 10)); // 0: 1-10, 1: 11-20, 2: 21-fin
@@ -964,12 +1011,18 @@ function renderMetaMes(data){
     html += '<div class="metames-note">Estimado según tu margen de ' + fmt0(margen*100) + '% este mes: tu meta de S/ ' +
       fmt0(metaMesValor) + ' en ventas equivale a unos S/ ' + fmt0(metaMesValor*margen) +
       ' en ganancia líquida. No es una meta aparte, se ajusta sola con tu margen real.</div>';
+  }
+
+  const colaMes = esPasado ? (mesNombre + ' ya cerró.')
+    : esFuturo ? (mesNombre + ' arranca con ' + diasDelMes + ' días por delante.')
+    : ('a ' + diasRestantes + ' día(s) de terminar ' + mesNombre + '.');
+
+  if(esGanancia){
     html += '<div class="metames-note">Mes completo: llevas S/ ' + fmt0(gananciaMes) + ' en ganancia líquida (de S/ ' +
-      fmt0(vendidoMes) + ' vendido), a ' + diasRestantes + ' día(s) de terminar ' + mesNombre + '.</div>';
+      fmt0(vendidoMes) + ' vendido), ' + colaMes + '</div>';
   } else {
     html += '<div class="metames-note">Mes completo: llevas S/ ' + fmt0(vendidoMes) + ' de S/ ' + fmt0(metaMesValor) +
-      ' (' + fmt0(Math.min(100, metaMesValor>0?vendidoMes/metaMesValor*100:0)) + '%), a ' + diasRestantes + ' día(s) de terminar ' +
-      mesNombre + '.</div>';
+      ' (' + fmt0(Math.min(100, metaMesValor>0?vendidoMes/metaMesValor*100:0)) + '%), ' + colaMes + '</div>';
   }
 
   bodyEl.innerHTML = html;
@@ -4292,6 +4345,7 @@ document.getElementById('monthSelect').addEventListener('change', (e) => {
     renderProyeccion(LAST.ventas, LAST.stocks, LAST.data, selectedMonthKey, LAST.gastos);
     renderAds(LAST.data, selectedMonthKey);
     renderRoas(LAST.ventas, LAST.data, selectedMonthKey);
+    renderMetaMes(LAST.data); // la meta también sigue al mes elegido
   }
 });
 
@@ -4359,7 +4413,9 @@ document.getElementById('metaMesToggle').addEventListener('click', (e) => {
 });
 document.getElementById('metaMesInput').addEventListener('input', (e) => {
   metaMesValor = Number(e.target.value) || 0;
-  guardarMetaMesValor(monthKey(new Date()), metaMesValor);
+  // Al mes que estás MIRANDO, no al de hoy: si no, poner la meta de octubre
+  // desde setiembre te la guardaba en setiembre y pisaba la que ya tenías.
+  guardarMetaMesValor(metaMesKeyActivo(), metaMesValor);
   if(LAST) renderMetaMes(LAST.data);
 });
 
