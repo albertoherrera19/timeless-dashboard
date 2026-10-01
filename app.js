@@ -463,8 +463,8 @@ const COMBO_ALIAS = {
   // mismo que "Anillos duki" (confirmado por Alberto 2026-09-30).
   'anillos': ['Anillo demon wings duki', 'Anillo angel wings duki'],
   'anillos angel y demon wings': ['Anillo demon wings duki', 'Anillo angel wings duki'],
-  'collar angel y demon wings': ['Anillo demon wings duki', 'Anillo angel wings duki'],
-  'collar angel y demon wings duki': ['Anillo demon wings duki', 'Anillo angel wings duki'],
+  // OJO: "Collar angel y demon wings" NO va acá. Es un collar aparte que
+  // existe en la hoja Stocks del Excel, no los anillos (ver ALIAS_PRODUCTO).
 };
 
 // Un mismo producto, anotado en Ventas con nombres distintos al de Stocks (le
@@ -490,12 +490,33 @@ const ALIAS_PRODUCTO = {
   'collar rosary chain': 'Collar silver rosary chain',
   'rosary chain': 'Collar silver rosary chain',
   'cinto dark knight': 'Cinturon dark knight',
-  'cinturon white chrome hearts': 'Cinturon chrome hearts',
-  'cinto white chrome hearts': 'Cinturon chrome hearts',
+  // El "white chrome hearts" es un producto APARTE del chrome hearts normal:
+  // tiene su propia fila en la hoja Stocks del Excel. (El 2026-09-30 se había
+  // fundido con el normal por suposición; la hoja mostró que no.)
+  'cinto white chrome hearts': 'Cinturon white chrome hearts',
   'cinto chrome hearts': 'Cinturon chrome hearts',
+  // Anotados sin la categoría adelante (ene-jun). Solo se mapean los que
+  // calzan con UN producto de la hoja Stocks al ponerles la categoría.
+  'demon cross': 'Collar demon cross',
+  'gothic cross': 'Collar gothic cross',
+  'phantom star': 'Collar phantom Star',
+  'shadow cross': 'Collar shadow cross',
+  'cemetery cross': 'Cinturon cemetery cross',
+  'gengar morado': 'Collar gengar morado',
+  'gengar plateado': 'Collar gengar plateado',
+  'collares de gengar morado': 'Collar gengar morado',
+  'correa hitboy': 'Cinturon Hitboy',
+  'collar ameri': 'Collar ameri duki',
+  // El púas punk se anotaba "suelto" cuando se vendía sin su collar de perlas
+  // (explicado por Alberto el 2026-09-29): es el mismo producto.
+  'collar de puas punk': 'Collar puas punk',
+  'collar puas sueltas': 'Collar puas punk',
   'pant chain chrome heartrs': 'Pant chain chrome hearts',
   'collares chrome hearts': 'Collar chrome hearts',
   'collar chrome hearst': 'Collar chrome hearts',
+  // El collar de alas es un producto propio de la hoja Stocks ("Collar Angel
+  // y Demon Wings duki"); en ventas a veces se anotó sin el "duki".
+  'collar angel y demon wings': 'Collar Angel y Demon Wings duki',
   // Confirmado por Alberto el 2026-10-01: los iced sin "y2k" son los mismos.
   'cinturon iced black': 'Cinturon iced black y2k',
   'cinturon iced silver': 'Cinturon iced silver y2k',
@@ -846,6 +867,8 @@ function loadMetas(){
       metaMesValor = leerMetaMesValor(metaMesKeyActivo());
       metaMesUltimoMes = metaMesKeyActivo();
       if(LAST){ renderMetaMes(LAST.data); renderMetaPerso(LAST.data); }
+      // La lista de catálogo vigente llega junto con las metas (id "catalogo").
+      repintarVxm();
     })
     .catch(() => {});
 }
@@ -3419,6 +3442,40 @@ const VXM_PREVIEW = 12;   // filas que entran en la tarjeta antes de "ver todo"
 
 function fmt1(n){ return Number(n).toLocaleString('es-PE', {maximumFractionDigits:1}); }
 
+// ---------- Vigente vs descontinuado ----------
+// "Vigente" = está en la hoja Stocks del Excel de inventario, que es la lista
+// de todo lo que Alberto puede volver a traer. "Descontinuado" = ya no está en
+// esa hoja, o está pero con el nombre pintado de rojo (lo que piensa sacar).
+// La lista la manda sync-ventas.ps1 al almacén de metas con el id "catalogo";
+// mientras no llegue, no se puede distinguir nada y no se ofrece el filtro.
+const VXM_OCULTAR_KEY = 'timeless_vxm_ocultar_desc';
+let vxmOcultarDesc = false;
+try{ vxmOcultarDesc = localStorage.getItem(VXM_OCULTAR_KEY) === '1'; }catch(e){}
+
+// Devuelve {key: true/false} para cada producto vendido, o null si aún no hay
+// lista de catálogo.
+function vxmVigencia(){
+  const c = metas['catalogo'];
+  if(!VXM || !c || !Array.isArray(c.vigentes) || c.vigentes.length === 0) return null;
+  const vig = c.vigentes.map(normProducto).filter(Boolean);
+  const out = {};
+  Object.keys(VXM.nombres).forEach(k => {
+    if(vig.indexOf(k) !== -1){ out[k] = true; return; }
+    // En el Excel algunos nombres llevan un apellido que en ventas no se
+    // escribe ("Cinturon Bullcore marron y blanco", "Collar murcielago v2").
+    // Si el nombre vendido es el comienzo de UN solo producto vigente, es ese.
+    out[k] = vig.filter(v => v.indexOf(k + ' ') === 0).length === 1;
+  });
+  return out;
+}
+function vxmChipDescHtml(vigencia){
+  if(!vigencia) return '';
+  const n = Object.keys(vigencia).filter(k => !vigencia[k]).length;
+  if(n === 0) return '';
+  return '<button type="button" class="cat-chip bad' + (vxmOcultarDesc ? '' : ' on') + '" data-vxm-desc="1">' +
+    (vxmOcultarDesc ? 'Descontinuados ocultos' : 'Descontinuados') + ' <span class="cat-chip-n">' + n + '</span></button>';
+}
+
 function getVendidoPorMes(data, stocks){
   const precioLista = {};
   const nombres = {};
@@ -3491,15 +3548,19 @@ function vxmGruposDelMes(mk){
   // El mes en curso no se compara: 3 días de octubre contra setiembre entero
   // daría "▼ 19" en todo y solo asusta. Se compara recién cuando cierra.
   const ant = mk === monthKey(new Date()) ? null : (VXM.porMes[vxmMesAnterior(mk)] || null);
-  const items = Object.keys(fila).map(k => ({
-    key: k,
-    nombre: VXM.nombres[k] || k,
-    unid: fila[k].unid,
-    soles: fila[k].soles,
-    primerDia: fila[k].primerDia,
-    // null = no hay mes anterior con datos; ahí no tiene sentido comparar.
-    antes: ant ? ((ant[k] && ant[k].unid) || 0) : null,
-  })).sort((a, b) => b.unid - a.unid || b.soles - a.soles);
+  const vigencia = vxmVigencia();
+  const items = Object.keys(fila)
+    .filter(k => !(vigencia && vxmOcultarDesc && !vigencia[k]))
+    .map(k => ({
+      key: k,
+      nombre: VXM.nombres[k] || k,
+      unid: fila[k].unid,
+      soles: fila[k].soles,
+      primerDia: fila[k].primerDia,
+      // null = no hay mes anterior con datos; ahí no tiene sentido comparar.
+      antes: ant ? ((ant[k] && ant[k].unid) || 0) : null,
+      desc: !!(vigencia && !vigencia[k]),
+    })).sort((a, b) => b.unid - a.unid || b.soles - a.soles);
   const orden = CAT_TIPOS.concat([CAT_OTROS]);
   return orden.map(t => {
     const its = items.filter(it => catTipoDe(it.nombre).id === t.id);
@@ -3524,8 +3585,9 @@ function vxmFilaHtml(it, mk){
   // "desde el 14": la primera venta del mes. Si cae tarde, casi siempre es que
   // el stock llegó ese día — no es la fecha de llegada exacta, pero se acerca.
   const desde = it.primerDia > 6 && it.primerDia !== 99 ? ' · 1ª venta el ' + it.primerDia : '';
-  return '<div class="vxm-row">' +
-      '<div class="vxm-l1"><span class="vxm-name">' + esc(it.nombre) + '</span>' +
+  return '<div class="vxm-row' + (it.desc ? ' vxm-desc' : '') + '">' +
+      '<div class="vxm-l1"><span class="vxm-name">' + esc(it.nombre) +
+        (it.desc ? ' <span class="vxm-tag">descontinuado</span>' : '') + '</span>' +
         '<span class="vxm-unid">' + it.unid + '</span></div>' +
       '<div class="vxm-l2"><span>≈ S/ ' + fmt0(it.soles) + ' · ' + vxmFrecuencia(it.unid, mk) + desde + '</span>' + delta + '</div>' +
     '</div>';
@@ -3580,10 +3642,15 @@ function vxmTablaHtml(){
     meses.map(mk => '<th>' + vxmSolesCorto(VXM.totMes[mk].soles) + '</th>').join('') +
     '<th></th></tr></thead><tbody>';
   const orden = CAT_TIPOS.concat([CAT_OTROS]);
+  const vigencia = vxmVigencia();
+  const esDesc = k => !!(vigencia && !vigencia[k]);
   orden.forEach(t => {
+    // Dentro de cada categoría: primero lo vigente, después lo descontinuado,
+    // y en cada bloque de más a menos vendido.
     const keys = Object.keys(totalPorProd)
       .filter(k => catTipoDe(VXM.nombres[k] || k).id === t.id)
-      .sort((a, b) => totalPorProd[b] - totalPorProd[a]);
+      .filter(k => !(vxmOcultarDesc && esDesc(k)))
+      .sort((a, b) => (esDesc(a) - esDesc(b)) || (totalPorProd[b] - totalPorProd[a]));
     if(keys.length === 0) return;
     const sumaMes = meses.map(mk => keys.reduce((s, k) => s + ((VXM.porMes[mk][k] || {}).unid || 0), 0));
     html += '<tr class="vxm-cat"><th class="vxm-prod">' + esc(t.nombre) + '</th>' +
@@ -3592,7 +3659,9 @@ function vxmTablaHtml(){
     keys.forEach(k => {
       const vals = meses.map(mk => (VXM.porMes[mk][k] || {}).unid || 0);
       const max = Math.max.apply(null, vals) || 1;
-      html += '<tr><th class="vxm-prod">' + esc(VXM.nombres[k] || k) + '</th>' +
+      html += '<tr' + (esDesc(k) ? ' class="vxm-desc"' : '') + '><th class="vxm-prod"' +
+          (esDesc(k) ? ' title="Descontinuado: ya no está en tu hoja Stocks, o está en rojo"' : '') + '>' +
+          esc(VXM.nombres[k] || k) + '</th>' +
         vals.map(n => n
           ? '<td class="vxm-cel" style="--h:' + (n / max).toFixed(2) + '"><span>' + n + '</span></td>'
           : '<td class="vxm-cero">·</td>').join('') +
@@ -3600,7 +3669,8 @@ function vxmTablaHtml(){
     });
   });
   html += '</tbody></table></div>' +
-    '<div class="stock-hint">★ tus dos meses de más venta. Un punto (·) es que ese mes no se vendió: puede ser que no se moviera o que no tuvieras stock — la tabla no distingue eso, tú sí. Cada celda se pinta más fuerte mientras más cerca esté del mejor mes de ese producto.</div>';
+    '<div class="stock-hint">' + (vigencia ? 'En gris y al final de cada categoría va lo <strong>descontinuado</strong>: lo que ya no está en la hoja Stocks de tu Excel, o está ahí con el nombre en rojo. ' : '') +
+    '★ tus dos meses de más venta. Un punto (·) es que ese mes no se vendió: puede ser que no se moviera o que no tuvieras stock — la tabla no distingue eso, tú sí. Cada celda se pinta más fuerte mientras más cerca esté del mejor mes de ese producto.</div>';
   return html;
 }
 
@@ -3608,6 +3678,7 @@ function vxmControlesFsHtml(){
   return '<div class="cat-controls">' +
       '<button type="button" class="cat-chip ok' + (vxmVista === 'mes' ? ' on' : '') + '" data-vxm-vista="mes">Un mes</button>' +
       '<button type="button" class="cat-chip ok' + (vxmVista === 'comparar' ? ' on' : '') + '" data-vxm-vista="comparar">Comparar meses</button>' +
+      vxmChipDescHtml(vxmVigencia()) +
     '</div>';
 }
 
@@ -3618,7 +3689,8 @@ function vxmFsHtml(){
 
 function vxmCardHtml(){
   const total = vxmGruposDelMes(vxmMes).reduce((s, g) => s + g.items.length, 0);
-  return vxmPagerHtml() + vxmListaHtml(VXM_PREVIEW) +
+  const chip = vxmChipDescHtml(vxmVigencia());
+  return vxmPagerHtml() + (chip ? '<div class="cat-controls">' + chip + '</div>' : '') + vxmListaHtml(VXM_PREVIEW) +
     (total > VXM_PREVIEW
       ? '<button type="button" class="cat-more" data-vxm-todo="1">Ver el mes completo (' + total + ' productos)</button>'
       : '') +
@@ -3678,6 +3750,17 @@ document.addEventListener('click', (ev) => {
     repintarVxm();
     const wrap = document.querySelector('#vxmFsBody .vxm-tabla-wrap');
     if(wrap) wrap.scrollLeft = wrap.scrollWidth;
+    return;
+  }
+  if(ev.target.closest('[data-vxm-desc]')){
+    vxmOcultarDesc = !vxmOcultarDesc;
+    try{ localStorage.setItem(VXM_OCULTAR_KEY, vxmOcultarDesc ? '1' : '0'); }catch(e){}
+    // Guarda dónde estaba la tabla de lado para que no salte al repintar.
+    const antes = document.querySelector('#vxmFsBody .vxm-tabla-wrap');
+    const x = antes ? antes.scrollLeft : null;
+    repintarVxm();
+    const despues = document.querySelector('#vxmFsBody .vxm-tabla-wrap');
+    if(despues && x != null) despues.scrollLeft = x;
     return;
   }
   if(ev.target.closest('[data-vxm-todo]')){ abrirVxmFs('mes'); return; }

@@ -1198,4 +1198,13 @@ footer{
 }
 .vxm-cel span{position:relative;}
 .vxm-cero{color:var(--muted);opacity:.5;}
+/* Descontinuado: se ve, pero apagado, para que lo vigente mande. */
+.vxm-row.vxm-desc .vxm-name,.vxm-row.vxm-desc .vxm-unid{color:var(--muted);}
+.vxm-tag{
+  font-size:9.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:1px 6px;margin-left:4px;
+}
+.vxm-tabla tr.vxm-desc .vxm-prod{color:var(--muted);font-style:italic;}
+.vxm-tabla tr.vxm-desc .vxm-cel::before{background:var(--muted);}
+.vxm-tabla tr.vxm-desc .vxm-tot{color:var(--muted);}
 .vxm-tot{font-weight:700;color:var(--bone);}
