@@ -496,6 +496,15 @@ const ALIAS_PRODUCTO = {
   'pant chain chrome heartrs': 'Pant chain chrome hearts',
   'collares chrome hearts': 'Collar chrome hearts',
   'collar chrome hearst': 'Collar chrome hearts',
+  // Confirmado por Alberto el 2026-10-01: los iced sin "y2k" son los mismos.
+  'cinturon iced black': 'Cinturon iced black y2k',
+  'cinturon iced silver': 'Cinturon iced silver y2k',
+  'cinto iced black': 'Cinturon iced black y2k',
+  'cinto iced silver': 'Cinturon iced silver y2k',
+  'iced black': 'Cinturon iced black y2k',
+  'iced black y2k': 'Cinturon iced black y2k',
+  'iced silver': 'Cinturon iced silver y2k',
+  'iced silver y2k': 'Cinturon iced silver y2k',
   // OJO: "cinturon starboy" NO se mapea. Era un cinturón distinto que ya no
   // se trae, y existe en paralelo el "Collar starboy", que sí está vigente.
   // La regla de Alberto: lo que va después de "collar"/"cinturon"/"pant
