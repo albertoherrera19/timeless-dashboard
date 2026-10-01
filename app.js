@@ -616,6 +616,7 @@ function renderAll(data, missing){
   renderProyeccion(ventas, stocks, data, selectedMonthKey, gastos);
   renderStock(stocks, data, gastos);
   renderCatalogo(stocks, data, gastos);
+  renderVendidoPorMes(stocks, data);
   renderMeses(ventas, gastos, data);
   renderTop(stocks, data);
   renderRecent(data);
@@ -3394,6 +3395,287 @@ function abrirCatalogoFs(){
 
 document.getElementById('catalogoHeaderBtn').addEventListener('click', abrirCatalogoFs);
 
+// ---------- Vendido por mes ----------
+// Qué productos salieron cada mes, agrupados por categoría. Es para mirar
+// hacia atrás: "en febrero y agosto, mis mejores meses, ¿qué tenía y qué se
+// movió?". Las UNIDADES son exactas: salen de VentasDetalle pasando por
+// splitCombo, con los mismos alias que el resto del dashboard ("Anillos duki"
+// cuenta como los dos anillos, "2 Cinturon hitboy" como dos). Los SOLES por
+// producto son aproximados: una venta combo trae un solo monto, y se reparte
+// entre sus piezas según el precio de lista de cada una en Stocks.
+let VXM = null;           // {meses, porMes, nombres, totMes} — ver getVendidoPorMes
+let vxmMes = null;        // mes que muestra la sección; arranca en el del selector
+let vxmVista = 'mes';     // 'mes' | 'comparar' (comparar solo en pantalla completa)
+const VXM_PREVIEW = 12;   // filas que entran en la tarjeta antes de "ver todo"
+
+function fmt1(n){ return Number(n).toLocaleString('es-PE', {maximumFractionDigits:1}); }
+
+function getVendidoPorMes(data, stocks){
+  const precioLista = {};
+  const nombres = {};
+  (stocks || []).forEach(s => {
+    const k = normProducto(s.producto);
+    if(!k) return;
+    nombres[k] = s.producto;
+    if(s.precio > 0) precioLista[k] = s.precio;
+  });
+  const porMes = {}, totMes = {};
+  getVentasDetalle(data).forEach(v => {
+    if(!v.date || isNaN(v.date)) return;
+    const piezas = splitCombo(v.producto);
+    if(piezas.length === 0) return;
+    const mk = monthKey(v.date);
+    const keys = piezas.map(p => normProducto(p));
+    // Reparto del monto por precio de lista. Una pieza que ya no está en
+    // Stocks (producto que dejaste de traer) toma el promedio de las demás.
+    const conocidos = keys.map(k => precioLista[k]).filter(Boolean);
+    const prom = conocidos.length ? conocidos.reduce((a,b) => a+b, 0) / conocidos.length : 1;
+    const pesos = keys.map(k => precioLista[k] || prom);
+    const sumaPesos = pesos.reduce((a,b) => a+b, 0) || 1;
+    if(!porMes[mk]) porMes[mk] = {};
+    if(!totMes[mk]) totMes[mk] = {ventas:0, soles:0, piezas:0};
+    totMes[mk].ventas++;
+    totMes[mk].soles += v.venta;
+    keys.forEach((k, i) => {
+      if(!k) return;
+      if(!nombres[k]) nombres[k] = cap(String(piezas[i]).trim());
+      const r = porMes[mk][k] || (porMes[mk][k] = {unid:0, soles:0, primerDia:99});
+      r.unid++;
+      r.soles += v.venta * pesos[i] / sumaPesos;
+      r.primerDia = Math.min(r.primerDia, v.date.getDate());
+      totMes[mk].piezas++;
+    });
+  });
+  return {meses: Object.keys(porMes).sort(), porMes, nombres, totMes};
+}
+
+// Días que cuentan para la frecuencia: el mes entero si ya cerró, y los días
+// transcurridos si es el mes en curso (si no, octubre al día 2 diría
+// "1 cada 15 días" de algo que vendiste dos veces en dos días).
+function vxmDiasDelMes(mk){
+  const [a, m] = mk.split('-').map(Number);
+  const hoy = new Date();
+  return mk === monthKey(hoy) ? hoy.getDate() : new Date(a, m, 0).getDate();
+}
+function vxmFrecuencia(unid, mk){
+  const dias = vxmDiasDelMes(mk);
+  const r = dias / unid;
+  if(r <= 1) return fmt1(unid / dias) + ' al día';
+  if(r < 3) return '1 cada ' + fmt1(r) + ' días';
+  return '1 cada ' + Math.round(r) + ' días';
+}
+function vxmMesAnterior(mk){
+  const [a, m] = mk.split('-').map(Number);
+  return monthKey(new Date(a, m - 2, 1));
+}
+function vxmMesCorto(mk){
+  const [a, m] = mk.split('-').map(Number);
+  return cap(new Date(a, m - 1, 1).toLocaleDateString('es-PE', {month:'short'}).replace('.', ''));
+}
+function vxmSolesCorto(n){
+  return n >= 1000 ? 'S/ ' + fmt1(n / 1000) + 'k' : 'S/ ' + fmt0(n);
+}
+
+// Productos del mes agrupados por categoría, con los de más unidades arriba.
+function vxmGruposDelMes(mk){
+  const fila = VXM.porMes[mk] || {};
+  // El mes en curso no se compara: 3 días de octubre contra setiembre entero
+  // daría "▼ 19" en todo y solo asusta. Se compara recién cuando cierra.
+  const ant = mk === monthKey(new Date()) ? null : (VXM.porMes[vxmMesAnterior(mk)] || null);
+  const items = Object.keys(fila).map(k => ({
+    key: k,
+    nombre: VXM.nombres[k] || k,
+    unid: fila[k].unid,
+    soles: fila[k].soles,
+    primerDia: fila[k].primerDia,
+    // null = no hay mes anterior con datos; ahí no tiene sentido comparar.
+    antes: ant ? ((ant[k] && ant[k].unid) || 0) : null,
+  })).sort((a, b) => b.unid - a.unid || b.soles - a.soles);
+  const orden = CAT_TIPOS.concat([CAT_OTROS]);
+  return orden.map(t => {
+    const its = items.filter(it => catTipoDe(it.nombre).id === t.id);
+    return {
+      titulo: t.nombre, items: its,
+      unid: its.reduce((s, it) => s + it.unid, 0),
+      soles: its.reduce((s, it) => s + it.soles, 0),
+    };
+  }).filter(g => g.items.length > 0);
+}
+
+function vxmFilaHtml(it, mk){
+  let delta = '';
+  if(it.antes != null){
+    const d = it.unid - it.antes;
+    delta = it.antes === 0
+      ? '<span class="vxm-delta nuevo" title="El mes anterior no vendiste ninguno">no vendió el mes ant.</span>'
+      : d > 0 ? '<span class="vxm-delta up">▲ ' + d + '</span>'
+      : d < 0 ? '<span class="vxm-delta down">▼ ' + (-d) + '</span>'
+      : '<span class="vxm-delta">= igual</span>';
+  }
+  // "desde el 14": la primera venta del mes. Si cae tarde, casi siempre es que
+  // el stock llegó ese día — no es la fecha de llegada exacta, pero se acerca.
+  const desde = it.primerDia > 6 && it.primerDia !== 99 ? ' · 1ª venta el ' + it.primerDia : '';
+  return '<div class="vxm-row">' +
+      '<div class="vxm-l1"><span class="vxm-name">' + esc(it.nombre) + '</span>' +
+        '<span class="vxm-unid">' + it.unid + '</span></div>' +
+      '<div class="vxm-l2"><span>≈ S/ ' + fmt0(it.soles) + ' · ' + vxmFrecuencia(it.unid, mk) + desde + '</span>' + delta + '</div>' +
+    '</div>';
+}
+
+function vxmPagerHtml(){
+  const i = VXM.meses.indexOf(vxmMes);
+  const tot = VXM.totMes[vxmMes] || {ventas:0, soles:0, piezas:0};
+  return '<div class="vxm-pager">' +
+      '<button type="button" class="vxm-nav" data-vxm-nav="-1"' + (i <= 0 ? ' disabled' : '') + ' aria-label="Mes anterior">‹</button>' +
+      '<div class="vxm-mes"><strong>' + esc(monthLabel(vxmMes)) + '</strong>' +
+        '<span>' + tot.ventas + (tot.ventas === 1 ? ' venta · ' : ' ventas · ') + tot.piezas +
+          (tot.piezas === 1 ? ' pieza' : ' piezas') + ' · S/ ' + fmt0(tot.soles) + '</span></div>' +
+      '<button type="button" class="vxm-nav" data-vxm-nav="1"' + (i >= VXM.meses.length - 1 ? ' disabled' : '') + ' aria-label="Mes siguiente">›</button>' +
+    '</div>';
+}
+
+// tope = null muestra todo (pantalla completa); con número corta la tarjeta
+// sin partir los grupos a la mitad de forma rara.
+function vxmListaHtml(tope){
+  const grupos = vxmGruposDelMes(vxmMes);
+  if(grupos.length === 0) return '<div class="empty">No hay ventas registradas en este mes.</div>';
+  let quedan = tope == null ? Infinity : tope;
+  let html = '';
+  for(let i = 0; i < grupos.length && quedan > 0; i++){
+    const g = grupos[i];
+    const its = g.items.slice(0, quedan);
+    quedan -= its.length;
+    html += '<div class="cat-grupo">' + esc(g.titulo) +
+      ' <span class="cat-grupo-n">' + g.unid + (g.unid === 1 ? ' pieza' : ' piezas') + ' · ≈ S/ ' + fmt0(g.soles) + '</span></div>' +
+      its.map(it => vxmFilaHtml(it, vxmMes)).join('');
+  }
+  return html;
+}
+
+// Tabla producto × mes, para comparar de un vistazo qué tenías y qué se movía
+// cada mes. Cada celda se tiñe según qué tan bueno fue ESE mes para ESE
+// producto (relativo a su propio mejor mes), así se ve la temporada de cada uno.
+function vxmTablaHtml(){
+  const meses = VXM.meses;
+  if(meses.length === 0) return '<div class="empty">Aún no hay ventas.</div>';
+  const totalPorProd = {};
+  meses.forEach(mk => {
+    const f = VXM.porMes[mk];
+    Object.keys(f).forEach(k => { totalPorProd[k] = (totalPorProd[k] || 0) + f[k].unid; });
+  });
+  // Los 2 meses de más venta llevan estrella: son los que vale la pena estudiar.
+  const top = meses.slice().sort((a, b) => VXM.totMes[b].soles - VXM.totMes[a].soles).slice(0, 2);
+  let html = '<div class="vxm-tabla-wrap"><table class="vxm-tabla"><thead><tr><th class="vxm-prod">Producto</th>' +
+    meses.map(mk => '<th class="' + (mk === vxmMes ? 'sel' : '') + '">' + vxmMesCorto(mk) + (top.indexOf(mk) !== -1 ? ' ★' : '') + '</th>').join('') +
+    '<th>Total</th></tr><tr class="vxm-sub"><th class="vxm-prod">Vendido</th>' +
+    meses.map(mk => '<th>' + vxmSolesCorto(VXM.totMes[mk].soles) + '</th>').join('') +
+    '<th></th></tr></thead><tbody>';
+  const orden = CAT_TIPOS.concat([CAT_OTROS]);
+  orden.forEach(t => {
+    const keys = Object.keys(totalPorProd)
+      .filter(k => catTipoDe(VXM.nombres[k] || k).id === t.id)
+      .sort((a, b) => totalPorProd[b] - totalPorProd[a]);
+    if(keys.length === 0) return;
+    const sumaMes = meses.map(mk => keys.reduce((s, k) => s + ((VXM.porMes[mk][k] || {}).unid || 0), 0));
+    html += '<tr class="vxm-cat"><th class="vxm-prod">' + esc(t.nombre) + '</th>' +
+      sumaMes.map(n => '<td>' + (n || '') + '</td>').join('') +
+      '<td>' + sumaMes.reduce((a, b) => a + b, 0) + '</td></tr>';
+    keys.forEach(k => {
+      const vals = meses.map(mk => (VXM.porMes[mk][k] || {}).unid || 0);
+      const max = Math.max.apply(null, vals) || 1;
+      html += '<tr><th class="vxm-prod">' + esc(VXM.nombres[k] || k) + '</th>' +
+        vals.map(n => n
+          ? '<td class="vxm-cel" style="--h:' + (n / max).toFixed(2) + '"><span>' + n + '</span></td>'
+          : '<td class="vxm-cero">·</td>').join('') +
+        '<td class="vxm-tot">' + totalPorProd[k] + '</td></tr>';
+    });
+  });
+  html += '</tbody></table></div>' +
+    '<div class="stock-hint">★ tus dos meses de más venta. Un punto (·) es que ese mes no se vendió: puede ser que no se moviera o que no tuvieras stock — la tabla no distingue eso, tú sí. Cada celda se pinta más fuerte mientras más cerca esté del mejor mes de ese producto.</div>';
+  return html;
+}
+
+function vxmControlesFsHtml(){
+  return '<div class="cat-controls">' +
+      '<button type="button" class="cat-chip ok' + (vxmVista === 'mes' ? ' on' : '') + '" data-vxm-vista="mes">Un mes</button>' +
+      '<button type="button" class="cat-chip ok' + (vxmVista === 'comparar' ? ' on' : '') + '" data-vxm-vista="comparar">Comparar meses</button>' +
+    '</div>';
+}
+
+function vxmFsHtml(){
+  return vxmControlesFsHtml() +
+    (vxmVista === 'comparar' ? vxmTablaHtml() : vxmPagerHtml() + vxmListaHtml(null));
+}
+
+function vxmCardHtml(){
+  const total = vxmGruposDelMes(vxmMes).reduce((s, g) => s + g.items.length, 0);
+  return vxmPagerHtml() + vxmListaHtml(VXM_PREVIEW) +
+    (total > VXM_PREVIEW
+      ? '<button type="button" class="cat-more" data-vxm-todo="1">Ver el mes completo (' + total + ' productos)</button>'
+      : '') +
+    '<button type="button" class="cat-more" data-vxm-comparar="1">Comparar todos los meses</button>';
+}
+
+function renderVendidoPorMes(stocks, data){
+  const box = document.getElementById('vxmBody');
+  const resumen = document.getElementById('vxmResumen');
+  if(!box) return;
+  if(!data.ventasDetalle){ box.innerHTML = needCfg('VentasDetalle'); return; }
+  VXM = getVendidoPorMes(data, stocks);
+  if(VXM.meses.length === 0){
+    box.innerHTML = '<div class="empty">Aún no hay ventas registradas.</div>';
+    if(resumen) resumen.textContent = '';
+    return;
+  }
+  // Primera vez: el mes del selector de arriba (si tiene ventas), si no el último.
+  if(!vxmMes || VXM.meses.indexOf(vxmMes) === -1){
+    vxmMes = VXM.meses.indexOf(selectedMonthKey) !== -1 ? selectedMonthKey : VXM.meses[VXM.meses.length - 1];
+  }
+  repintarVxm();
+}
+
+function repintarVxm(){
+  if(!VXM) return;
+  const box = document.getElementById('vxmBody');
+  if(box) box.innerHTML = vxmCardHtml();
+  const resumen = document.getElementById('vxmResumen');
+  if(resumen){
+    const n = Object.keys(VXM.porMes[vxmMes] || {}).length;
+    resumen.textContent = n + ' productos';
+  }
+  const fs = document.getElementById('vxmFsBody');
+  if(fs) fs.innerHTML = vxmFsHtml();
+}
+
+function abrirVxmFs(vista){
+  if(!VXM) return;
+  if(vista) vxmVista = vista;
+  openFullscreen('Vendido por mes', '<div id="vxmFsBody">' + vxmFsHtml() + '</div>');
+  // En la tabla, que arranque mostrando los meses más recientes (a la derecha).
+  const wrap = document.querySelector('#vxmFsBody .vxm-tabla-wrap');
+  if(wrap) wrap.scrollLeft = wrap.scrollWidth;
+}
+
+document.addEventListener('click', (ev) => {
+  const nav = ev.target.closest('[data-vxm-nav]');
+  if(nav && !nav.disabled){
+    const i = VXM.meses.indexOf(vxmMes) + Number(nav.getAttribute('data-vxm-nav'));
+    if(i >= 0 && i < VXM.meses.length){ vxmMes = VXM.meses[i]; repintarVxm(); }
+    return;
+  }
+  const vista = ev.target.closest('[data-vxm-vista]');
+  if(vista){
+    vxmVista = vista.getAttribute('data-vxm-vista');
+    repintarVxm();
+    const wrap = document.querySelector('#vxmFsBody .vxm-tabla-wrap');
+    if(wrap) wrap.scrollLeft = wrap.scrollWidth;
+    return;
+  }
+  if(ev.target.closest('[data-vxm-todo]')){ abrirVxmFs('mes'); return; }
+  if(ev.target.closest('[data-vxm-comparar]')){ abrirVxmFs('comparar'); return; }
+});
+document.getElementById('vxmHeaderBtn').addEventListener('click', () => abrirVxmFs('mes'));
+
 // "hace X días" desde una fecha ISO (misma idea que fmtPedidoMeta pero suelto).
 function segHace(iso){
   if(!iso) return '';
@@ -4346,6 +4628,12 @@ document.getElementById('monthSelect').addEventListener('change', (e) => {
     renderAds(LAST.data, selectedMonthKey);
     renderRoas(LAST.ventas, LAST.data, selectedMonthKey);
     renderMetaMes(LAST.data); // la meta también sigue al mes elegido
+  }
+  // "Vendido por mes" salta al mismo mes, pero después se puede mover solo
+  // con sus flechas sin tocar el resto del dashboard.
+  if(VXM && VXM.meses.indexOf(selectedMonthKey) !== -1){
+    vxmMes = selectedMonthKey;
+    repintarVxm();
   }
 });
 

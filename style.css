@@ -1132,3 +1132,70 @@ footer{
 }
 .cat-grupo:first-child{margin-top:0;}
 .cat-grupo-n{font-size:10px;opacity:.7;}
+
+/* Vendido por mes: selector de mes propio + filas de dos líneas (en celular
+   no entra nombre, unidades, soles, frecuencia y comparación en una sola). */
+.vxm-pager{
+  display:flex;align-items:center;gap:8px;
+  margin:2px 0 10px;padding:8px;border-radius:12px;
+  background:var(--chip);border:1px solid var(--line);
+}
+.vxm-nav{
+  width:34px;height:34px;flex-shrink:0;border-radius:10px;cursor:pointer;
+  font-size:20px;line-height:1;font-family:inherit;
+  background:transparent;border:1px solid var(--line);color:var(--bone);
+}
+.vxm-nav:disabled{opacity:.25;cursor:default;}
+.vxm-nav:not(:disabled):active{opacity:.6;}
+.vxm-mes{flex:1;min-width:0;text-align:center;display:flex;flex-direction:column;gap:2px;}
+.vxm-mes strong{font-size:14px;color:var(--bone);}
+.vxm-mes span{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;}
+.vxm-row{padding:8px 6px;border-bottom:1px dashed var(--line);}
+.vxm-row:last-child{border-bottom:none;}
+.vxm-l1{display:flex;align-items:baseline;gap:10px;}
+.vxm-name{
+  flex:1;min-width:0;font-size:13px;color:var(--bone);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.vxm-unid{font-size:16px;font-weight:800;color:var(--bone);font-variant-numeric:tabular-nums;}
+.vxm-l2{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  margin-top:2px;font-size:11px;color:var(--muted);
+}
+.vxm-l2 > span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.vxm-delta{flex-shrink:0;font-weight:600;white-space:nowrap;}
+.vxm-delta.up{color:var(--ok);}
+.vxm-delta.down{color:var(--bad);}
+.vxm-delta.nuevo{color:var(--muted);font-weight:500;font-style:italic;}
+
+/* Tabla producto × mes: la primera columna queda fija al deslizar de lado. */
+.vxm-tabla-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px;}
+.vxm-tabla{border-collapse:separate;border-spacing:0;font-size:12px;min-width:100%;}
+.vxm-tabla th,.vxm-tabla td{
+  padding:6px 7px;text-align:center;white-space:nowrap;
+  border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;
+}
+.vxm-tabla thead th{font-size:11px;font-weight:700;color:var(--muted);}
+.vxm-tabla thead th.sel{color:var(--accent);}
+.vxm-tabla tr.vxm-sub th{font-size:10px;font-weight:500;padding-top:0;}
+.vxm-tabla .vxm-prod{
+  position:sticky;left:0;z-index:1;background:var(--card);
+  text-align:left;font-weight:500;color:var(--bone);
+  max-width:150px;overflow:hidden;text-overflow:ellipsis;
+}
+.vxm-tabla thead .vxm-prod{color:var(--muted);}
+/* En pantalla completa el fondo es el de la página, no el de la tarjeta: la
+   columna fija tiene que tapar con ese mismo color o se ve un parche. */
+.fullscreen-view .vxm-tabla .vxm-prod{background:var(--bg);}
+.vxm-tabla tr.vxm-cat th,.vxm-tabla tr.vxm-cat td{
+  font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);padding-top:12px;
+}
+.vxm-cel{position:relative;color:var(--bone);font-weight:600;}
+.vxm-cel::before{
+  content:"";position:absolute;inset:2px;border-radius:6px;
+  background:var(--accent);opacity:calc(.08 + var(--h) * .5);
+}
+.vxm-cel span{position:relative;}
+.vxm-cero{color:var(--muted);opacity:.5;}
+.vxm-tot{font-weight:700;color:var(--bone);}
