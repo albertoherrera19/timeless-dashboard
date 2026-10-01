@@ -3464,7 +3464,10 @@ function vxmVigencia(){
     // En el Excel algunos nombres llevan un apellido que en ventas no se
     // escribe ("Cinturon Bullcore marron y blanco", "Collar murcielago v2").
     // Si el nombre vendido es el comienzo de UN solo producto vigente, es ese.
-    out[k] = vig.filter(v => v.indexOf(k + ' ') === 0).length === 1;
+    // Excepción: si lo que sobra es un número de versión ("v2", "2"), es OTRO
+    // producto, no el mismo con apellido. "Collar murcielago" y "Collar
+    // murcielago v2" son distintos (confirmado por Alberto el 2026-10-01).
+    out[k] = vig.filter(v => v.indexOf(k + ' ') === 0 && !/^v?\d+$/.test(v.slice(k.length + 1))).length === 1;
   });
   return out;
 }
