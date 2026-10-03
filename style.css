@@ -1207,4 +1207,11 @@ footer{
 .vxm-tabla tr.vxm-desc .vxm-prod{color:var(--muted);font-style:italic;}
 .vxm-tabla tr.vxm-desc .vxm-cel::before{background:var(--muted);}
 .vxm-tabla tr.vxm-desc .vxm-tot{color:var(--muted);}
+/* Vista de velocidad */
+.vxm-um{font-size:10px;font-weight:600;color:var(--muted);margin-left:2px;}
+.vxm-sinvel{color:var(--muted);}
+.vxm-poco{color:var(--bad);}
+/* Acá la segunda línea lleva más datos que en la lista del mes: que baje de
+   línea en vez de cortarse, o en el celular se pierde la mitad. */
+.vxm-vel-row .vxm-l2 > span:first-child{white-space:normal;overflow:visible;}
 .vxm-tot{font-weight:700;color:var(--bone);}

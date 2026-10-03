@@ -3488,6 +3488,11 @@ function getVendidoPorMes(data, stocks){
     nombres[k] = s.producto;
     if(s.precio > 0) precioLista[k] = s.precio;
   });
+  const costoU = {};
+  (stocks || []).forEach(s => {
+    const k = normProducto(s.producto);
+    if(k && s.cantidadPedido > 0) costoU[k] = s.invertido / s.cantidadPedido;
+  });
   const porMes = {}, totMes = {};
   getVentasDetalle(data).forEach(v => {
     if(!v.date || isNaN(v.date)) return;
@@ -3515,7 +3520,9 @@ function getVendidoPorMes(data, stocks){
       totMes[mk].piezas++;
     });
   });
-  return {meses: Object.keys(porMes).sort(), porMes, nombres, totMes};
+  const stockU = {};
+  (stocks || []).forEach(s => { const k = normProducto(s.producto); if(k) stockU[k] = s.stock; });
+  return {meses: Object.keys(porMes).sort(), porMes, nombres, totMes, precioLista, costoU, stockU};
 }
 
 // Días que cuentan para la frecuencia: el mes entero si ya cerró, y los días
@@ -3677,17 +3684,115 @@ function vxmTablaHtml(){
   return html;
 }
 
+// ---------- Vista "Velocidad" ----------
+// Ordena TODO lo que vendiste alguna vez por qué tan rápido sale. La velocidad
+// se mide solo sobre MESES COMPLETOS en los que vendió algo: los meses en cero
+// casi siempre son quiebres de stock, y contarlos hunde a productos sanos (le
+// pasó al starboy). El mes en curso va aparte, sin promediar, porque 4 ventas
+// en 3 días no son "4 al mes".
+const VXM_VEL_KEY = 'timeless_vxm_vel_filtros';
+let vxmVelFiltros = {stock:true, agotado:true, desc:false};
+try{
+  const f = JSON.parse(localStorage.getItem(VXM_VEL_KEY));
+  if(f && typeof f === 'object') vxmVelFiltros = Object.assign(vxmVelFiltros, f);
+}catch(e){}
+
+function vxmVelocidad(){
+  if(!VXM) return [];
+  const vigencia = vxmVigencia();
+  const mkHoy = monthKey(new Date());
+  const completos = VXM.meses.filter(mk => mk !== mkHoy);
+  const out = [];
+  Object.keys(VXM.nombres).forEach(k => {
+    let total = 0, activos = 0, mejor = 0, mejorMes = null;
+    completos.forEach(mk => {
+      const n = (VXM.porMes[mk][k] || {}).unid || 0;
+      if(n > 0){ total += n; activos++; if(n > mejor){ mejor = n; mejorMes = mk; } }
+    });
+    const esteMes = (VXM.porMes[mkHoy] && VXM.porMes[mkHoy][k] ? VXM.porMes[mkHoy][k].unid : 0);
+    const vel = activos > 0 ? total / activos : null;
+    const stock = VXM.stockU[k] != null ? VXM.stockU[k] : null;
+    const esDesc = !!(vigencia && !vigencia[k]);
+    const precio = VXM.precioLista[k] || 0;
+    const costo = VXM.costoU[k] || 0;
+    out.push({
+      key: k, nombre: VXM.nombres[k] || k,
+      vel, activos, mejor, mejorMes, esteMes, total,
+      stock, esDesc,
+      // Estado: descontinuado gana sobre todo; si no, manda el stock.
+      estado: esDesc ? 'desc' : (stock > 0 ? 'stock' : 'agotado'),
+      // Días que durará el stock al ritmo de venta.
+      cobertura: (vel && stock != null && stock > 0) ? Math.round(stock / (vel / 30)) : null,
+      margenMes: (vel && precio > 0 && costo > 0) ? vel * (precio - costo) : null,
+    });
+  });
+  // Sin velocidad al final: son los que solo vendieron este mes o nunca.
+  return out.sort((a, b) => (b.vel || -1) - (a.vel || -1) || b.total - a.total);
+}
+
+function vxmVelChipsHtml(lista){
+  const n = {stock:0, agotado:0, desc:0};
+  lista.forEach(p => n[p.estado]++);
+  const chip = (clave, texto, cls) =>
+    '<button type="button" class="cat-chip ' + cls + (vxmVelFiltros[clave] ? ' on' : '') +
+      '" data-vxm-vel="' + clave + '">' + texto + ' <span class="cat-chip-n">' + n[clave] + '</span></button>';
+  return '<div class="cat-controls">' +
+      chip('stock', 'En stock', 'ok') +
+      chip('agotado', 'Agotados', 'warn') +
+      chip('desc', 'Descontinuados', 'bad') +
+    '</div>';
+}
+
+function vxmVelFilaHtml(p){
+  const vel = p.vel == null
+    ? '<span class="vxm-unid vxm-sinvel">—</span>'
+    : '<span class="vxm-unid">' + fmt1(p.vel) + '<span class="vxm-um">/mes</span></span>';
+  const partes = [];
+  if(p.estado === 'stock'){
+    partes.push(p.stock + ' en stock' + (p.cobertura != null
+      ? ' · <strong class="' + (p.cobertura <= 20 ? 'vxm-poco' : '') + '">' + p.cobertura + ' días</strong>'
+      : ''));
+  } else if(p.estado === 'agotado'){
+    partes.push('<strong class="vxm-poco">agotado</strong>');
+  }
+  if(p.margenMes != null) partes.push('≈ S/ ' + fmt0(p.margenMes) + '/mes');
+  // Los meses que sostuvo ese ritmo: un producto con UN solo mes bueno sale
+  // con velocidad alta y no es lo mismo que uno que la mantiene seis meses.
+  if(p.vel != null) partes.push('mejor ' + p.mejor + (p.mejorMes ? ' (' + vxmMesCorto(p.mejorMes) + ')' : '') +
+    ' · ' + p.activos + (p.activos === 1 ? ' mes' : ' meses'));
+  else partes.push(p.esteMes > 0 ? 'solo este mes' : 'sin ventas');
+  if(p.esteMes > 0 && p.vel != null) partes.push('este mes ' + p.esteMes);
+  return '<div class="vxm-row vxm-vel-row' + (p.esDesc ? ' vxm-desc' : '') + '">' +
+      '<div class="vxm-l1"><span class="vxm-name">' + esc(p.nombre) +
+        (p.esDesc ? ' <span class="vxm-tag">descontinuado</span>' : '') + '</span>' + vel + '</div>' +
+      '<div class="vxm-l2"><span>' + partes.join(' · ') + '</span></div>' +
+    '</div>';
+}
+
+function vxmVelHtml(){
+  const lista = vxmVelocidad();
+  const visibles = lista.filter(p => vxmVelFiltros[p.estado]);
+  return vxmVelChipsHtml(lista) +
+    (visibles.length === 0
+      ? '<div class="empty">Nada que mostrar con estos filtros.</div>'
+      : visibles.map(vxmVelFilaHtml).join('')) +
+    '<div class="stock-hint">Velocidad = unidades por mes contando <strong>solo los meses completos en que vendió algo</strong>. Los meses en cero no se promedian porque casi siempre son quiebres de stock, no falta de demanda. El mes en curso va aparte ("este mes N") para que unos pocos días no inflen el número. Los "días" son cuánto te dura el stock a ese ritmo.</div>';
+}
+
 function vxmControlesFsHtml(){
   return '<div class="cat-controls">' +
       '<button type="button" class="cat-chip ok' + (vxmVista === 'mes' ? ' on' : '') + '" data-vxm-vista="mes">Un mes</button>' +
       '<button type="button" class="cat-chip ok' + (vxmVista === 'comparar' ? ' on' : '') + '" data-vxm-vista="comparar">Comparar meses</button>' +
-      vxmChipDescHtml(vxmVigencia()) +
+      '<button type="button" class="cat-chip ok' + (vxmVista === 'velocidad' ? ' on' : '') + '" data-vxm-vista="velocidad">Velocidad</button>' +
+      (vxmVista === 'velocidad' ? '' : vxmChipDescHtml(vxmVigencia())) +
     '</div>';
 }
 
 function vxmFsHtml(){
   return vxmControlesFsHtml() +
-    (vxmVista === 'comparar' ? vxmTablaHtml() : vxmPagerHtml() + vxmListaHtml(null));
+    (vxmVista === 'velocidad' ? vxmVelHtml()
+      : vxmVista === 'comparar' ? vxmTablaHtml()
+      : vxmPagerHtml() + vxmListaHtml(null));
 }
 
 function vxmCardHtml(){
@@ -3697,7 +3802,8 @@ function vxmCardHtml(){
     (total > VXM_PREVIEW
       ? '<button type="button" class="cat-more" data-vxm-todo="1">Ver el mes completo (' + total + ' productos)</button>'
       : '') +
-    '<button type="button" class="cat-more" data-vxm-comparar="1">Comparar todos los meses</button>';
+    '<button type="button" class="cat-more" data-vxm-comparar="1">Comparar todos los meses</button>' +
+    '<button type="button" class="cat-more" data-vxm-velocidad="1">Velocidad de venta de cada producto</button>';
 }
 
 function renderVendidoPorMes(stocks, data){
@@ -3766,8 +3872,19 @@ document.addEventListener('click', (ev) => {
     if(despues && x != null) despues.scrollLeft = x;
     return;
   }
+  const velChip = ev.target.closest('[data-vxm-vel]');
+  if(velChip){
+    const clave = velChip.getAttribute('data-vxm-vel');
+    // No dejar apagar los tres: una lista vacía no le sirve a nadie.
+    if(vxmVelFiltros[clave] && Object.keys(vxmVelFiltros).filter(k => vxmVelFiltros[k]).length === 1) return;
+    vxmVelFiltros[clave] = !vxmVelFiltros[clave];
+    try{ localStorage.setItem(VXM_VEL_KEY, JSON.stringify(vxmVelFiltros)); }catch(e){}
+    repintarVxm();
+    return;
+  }
   if(ev.target.closest('[data-vxm-todo]')){ abrirVxmFs('mes'); return; }
   if(ev.target.closest('[data-vxm-comparar]')){ abrirVxmFs('comparar'); return; }
+  if(ev.target.closest('[data-vxm-velocidad]')){ abrirVxmFs('velocidad'); return; }
 });
 document.getElementById('vxmHeaderBtn').addEventListener('click', () => abrirVxmFs('mes'));
 
