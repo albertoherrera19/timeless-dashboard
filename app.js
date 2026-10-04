@@ -3493,7 +3493,7 @@ function getVendidoPorMes(data, stocks){
     const k = normProducto(s.producto);
     if(k && s.cantidadPedido > 0) costoU[k] = s.invertido / s.cantidadPedido;
   });
-  const porMes = {}, totMes = {};
+  const porMes = {}, totMes = {}, fechas = {};
   getVentasDetalle(data).forEach(v => {
     if(!v.date || isNaN(v.date)) return;
     const piezas = splitCombo(v.producto);
@@ -3518,11 +3518,13 @@ function getVendidoPorMes(data, stocks){
       r.soles += v.venta * pesos[i] / sumaPesos;
       r.primerDia = Math.min(r.primerDia, v.date.getDate());
       totMes[mk].piezas++;
+      // Día de cada unidad vendida: para contar "vendidos desde que llegó".
+      (fechas[k] || (fechas[k] = [])).push(dayKey(v.date));
     });
   });
   const stockU = {};
   (stocks || []).forEach(s => { const k = normProducto(s.producto); if(k) stockU[k] = s.stock; });
-  return {meses: Object.keys(porMes).sort(), porMes, nombres, totMes, precioLista, costoU, stockU};
+  return {meses: Object.keys(porMes).sort(), porMes, nombres, totMes, precioLista, costoU, stockU, fechas};
 }
 
 // Días que cuentan para la frecuencia: el mes entero si ya cerró, y los días
@@ -3697,9 +3699,31 @@ try{
   if(f && typeof f === 'object') vxmVelFiltros = Object.assign(vxmVelFiltros, f);
 }catch(e){}
 
+// Última llegada de cada producto: {key: {dia, unidades}}. La anota
+// sync-ventas.ps1 cuando ve que el stock subió respecto de la corrida anterior
+// y la manda al almacén de metas con el id "llegadas". El Excel solo guarda la
+// fecha en que se PIDIÓ; sin la de llegada, los días de viaje cuentan como
+// días sin vender y el producto recién repuesto se ve más lento de lo que es.
+function vxmUltimasLlegadas(){
+  const c = metas['llegadas'];
+  const out = {};
+  if(!c || !c.llegadas) return out;
+  Object.keys(c.llegadas).forEach(nombre => {
+    const lista = c.llegadas[nombre];
+    if(!Array.isArray(lista) || lista.length === 0) return;
+    const u = lista[lista.length - 1];
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(u.fecha || ''));
+    if(!m) return;
+    out[normProducto(nombre)] = {dia: dayKey(new Date(+m[1], +m[2] - 1, +m[3])), unidades: Number(u.unidades) || 0};
+  });
+  return out;
+}
+
 function vxmVelocidad(){
   if(!VXM) return [];
   const vigencia = vxmVigencia();
+  const llegadas = vxmUltimasLlegadas();
+  const hoyDia = dayKey(new Date());
   const mkHoy = monthKey(new Date());
   const completos = VXM.meses.filter(mk => mk !== mkHoy);
   const out = [];
@@ -3715,7 +3739,17 @@ function vxmVelocidad(){
     const esDesc = !!(vigencia && !vigencia[k]);
     const precio = VXM.precioLista[k] || 0;
     const costo = VXM.costoU[k] || 0;
+    // Ritmo desde la última llegada: unidades vendidas desde ese día, llevadas
+    // a 30 días. Con menos de 3 días no se proyecta: sería ruido.
+    let desdeLlegada = null;
+    const ll = llegadas[k];
+    if(ll){
+      const dias = Math.round((hoyDia - ll.dia) / 86400000);
+      const vend = (VXM.fechas[k] || []).filter(d => d >= ll.dia).length;
+      desdeLlegada = {dias, vend, unidades: ll.unidades, ritmo: dias >= 3 ? vend / dias * 30 : null};
+    }
     out.push({
+      desdeLlegada,
       key: k, nombre: VXM.nombres[k] || k,
       vel, activos, mejor, mejorMes, esteMes, total,
       stock, esDesc,
@@ -3762,6 +3796,12 @@ function vxmVelFilaHtml(p){
     ' · ' + p.activos + (p.activos === 1 ? ' mes' : ' meses'));
   else partes.push(p.esteMes > 0 ? 'solo este mes' : 'sin ventas');
   if(p.esteMes > 0 && p.vel != null) partes.push('este mes ' + p.esteMes);
+  if(p.desdeLlegada){
+    const d = p.desdeLlegada;
+    partes.push('<strong>llegaron ' + d.unidades + ' ' + fmtHaceDias(d.dias) + '</strong>: ' + d.vend +
+      (d.vend === 1 ? ' vendido' : ' vendidos') + ' desde entonces' +
+      (d.ritmo != null ? ' (ritmo ' + fmt1(d.ritmo) + '/mes)' : ''));
+  }
   return '<div class="vxm-row vxm-vel-row' + (p.esDesc ? ' vxm-desc' : '') + '">' +
       '<div class="vxm-l1"><span class="vxm-name">' + esc(p.nombre) +
         (p.esDesc ? ' <span class="vxm-tag">descontinuado</span>' : '') + '</span>' + vel + '</div>' +
