@@ -336,9 +336,30 @@ const CANJE_CATEGORIAS = ['canjes', 'reposicion', 'reposición'];
 // No hace falta tocar Stock/Cantidad pedido/Vendidos en tu Excel de
 // Venta_accs para nada de esto: el dashboard resta los canjes él solo en
 // getPendientesDeStock, así no se distorsiona tu costo unitario.
+function catalogoProductos(stocks){
+  const c = {};
+  (stocks || []).forEach(s => { c[normProducto(s.producto)] = true; });
+  return c;
+}
+
+// ¿Esta entrada de Canjes/Reposición es mercadería regalada, o plata real?
+// La app de gastos de Alberto ofrece dos subtipos al registrar, pero NO los
+// manda como columna aparte: la NOTA es la única señal.
+//   "Producto (no gasto efectivo)" -> nota = nombre del producto
+//                                     (ej. "Collar Phantom Star")
+//   "Otro (envío, devolución…)"    -> nota = texto libre
+//                                     (ej. "envío shalom", "envío fallido")
+// Devuelve true solo en el primer caso. Misma regla que usa
+// getCanjesPorProducto para decidir a qué producto restarle una unidad, así
+// las dos lecturas no se pueden desincronizar.
+function canjeEsProducto(nota, catalogo){
+  const piezas = splitCombo(nota);
+  if(piezas.length > 0 && piezas.every(p => catalogo[normProducto(p)])) return true;
+  return CANJE_PALABRAS_CLAVE.some(r => r.rx.test(normName(nota || '')));
+}
+
 function getCanjesPorProducto(gastos, stocks){
-  const catalogo = {};
-  (stocks || []).forEach(s => { catalogo[normProducto(s.producto)] = true; });
+  const catalogo = catalogoProductos(stocks);
 
   const map = {};
   const suma = (nombres) => nombres.forEach(p => {
@@ -1136,12 +1157,17 @@ function metaPersoCalc(data){
     ? getVentasDetalle(data).filter(v => v.date >= fInicio && v.date <= fLimite).sort((a,b) => b.date - a.date)
     : [];
   const detVentas = detVentasPeriodo.filter(v => excluidosVentas.indexOf(v.id) === -1);
-  // Canjes/Reposición no son plata nueva que sale de tu bolsillo (el producto
-  // ya estaba pagado como "Materiales" cuando lo compraste) — contarlos aquí
-  // sería restar el mismo gasto dos veces, así que no entran al efectivo.
+  // Canjes/Reposición de PRODUCTO no son plata nueva que sale de tu bolsillo
+  // (ese producto ya se pagó como Inversión cuando lo compraste) — contarlos
+  // aquí sería restar el mismo gasto dos veces, así que no entran al efectivo.
+  // Pero el subtipo "Otro" de esas mismas categorías (envíos que asume él,
+  // devoluciones) SÍ es plata real que nunca se contó en otro lado, así que sí
+  // entra. La nota es la única señal del subtipo — ver canjeEsProducto.
+  const catCanje = catalogoProductos(getStocks(data));
   const gastosPeriodo = body(data.gastos)
     .map(r => ({id: String(r[0]||''), date: parseDateSmart(r[1]), categoria: (r[2]||'').trim(), monto: parseMoney(r[3]), nota: (r[4]||'').trim()}))
-    .filter(g => g.id && g.date && g.monto > 0 && g.date >= fInicio && g.date <= hoy && CANJE_CATEGORIAS.indexOf(normName(g.categoria)) === -1)
+    .filter(g => g.id && g.date && g.monto > 0 && g.date >= fInicio && g.date <= hoy &&
+      !(CANJE_CATEGORIAS.indexOf(normName(g.categoria)) !== -1 && canjeEsProducto(g.nota, catCanje)))
     .sort((a,b) => b.date - a.date);
   const gastosIncluidos = gastosPeriodo.filter(g => excluidos.indexOf(g.id) === -1);
 
@@ -2436,7 +2462,7 @@ function renderPendientes(stocks, canjes, vendidosHist){
       const producto = btn.getAttribute('data-producto');
       if(!confirm('"' + producto + '" — ¿esto NO es un pedido real? (fue un ajuste de stock por error de conteo, no algo que va a llegar)\n\nSe deja de mostrar aquí. Si más adelante haces un pedido de verdad, vuelve a aparecer solo.')) return;
       ignorarPendiente(btn.getAttribute('data-key'), Number(btn.getAttribute('data-cantidad')));
-      if(LAST) renderPendientes(LAST.stocks, getCanjesPorProducto(LAST.gastos || []), getVendidosHistoricoSet(LAST.data));
+      if(LAST) renderPendientes(LAST.stocks, getCanjesPorProducto(LAST.gastos || [], LAST.stocks), getVendidosHistoricoSet(LAST.data));
     });
   });
   if(rows.length > 0){
