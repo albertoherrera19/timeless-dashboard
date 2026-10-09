@@ -125,6 +125,57 @@ let LAST = null;
 
 /* ---------- Carga de datos ---------- */
 const cfg = (typeof TIMELESS_CONFIG !== 'undefined') ? TIMELESS_CONFIG : {};
+/* ---------- Clave de acceso al Apps Script ----------
+ * El Apps Script ahora puede exigir una clave para leer y escribir (antes
+ * contestaba a cualquiera que tuviera la URL, y la URL está en config.js, que
+ * GitHub Pages sirve público).
+ *
+ * La clave se escribe UNA VEZ POR APARATO y se guarda solo en este navegador.
+ * No está en el repo, ni en config.js, ni viaja a ningún lado que no sea el
+ * propio Apps Script de Alberto.
+ *
+ * Para escribirla: abrir el dashboard con #clave al final de la dirección.
+ * Si el Apps Script responde que falta, se pide sola.
+ */
+const CLAVE_API_KEY = 'timeless_clave_api';
+function claveApi(){
+  try{ return localStorage.getItem(CLAVE_API_KEY) || ''; }catch(e){ return ''; }
+}
+function guardarClaveApi(v){
+  try{ localStorage.setItem(CLAVE_API_KEY, String(v||'').trim()); }catch(e){}
+}
+function pedirClaveApi(motivo){
+  if(pedirClaveApi._abierto) return;          // una sola ventana aunque fallen 6 lecturas
+  pedirClaveApi._abierto = true;
+  const v = prompt((motivo || 'Escribe tu clave de acceso de Timeless.') +
+                   '\n\nSe guarda solo en este aparato.');
+  pedirClaveApi._abierto = false;
+  if(v && v.trim()){ guardarClaveApi(v); location.reload(); }
+}
+// URL de lectura: clave + el anti-caché que ya se usaba.
+function urlApi(action){
+  const k = claveApi();
+  return cfg.WEBHOOK_URL + '?action=' + encodeURIComponent(action)
+       + (k ? '&k=' + encodeURIComponent(k) : '')
+       + '&_cb=' + Date.now();
+}
+// Cuerpo de escritura: la clave va DENTRO del JSON (el POST va como
+// text/plain para evitar el preflight CORS, así que no puede ir en cabecera).
+function cuerpoApi(obj){
+  const k = claveApi();
+  const o = Object.assign({}, obj || {});
+  if(k) o.k = k;
+  return JSON.stringify(o);
+}
+if(location.hash === '#clave'){
+  setTimeout(() => {
+    const actual = claveApi();
+    const v = prompt('Clave de acceso de Timeless para este aparato:' +
+                     (actual ? '\n\n(ya hay una guardada — escribe la nueva, o cancela para dejarla)' : ''), actual);
+    if(v !== null){ guardarClaveApi(v); history.replaceState(null,'',location.pathname); location.reload(); }
+  }, 300);
+}
+
 // "Publicidad" (resumen semanal de ads a mano) ya no se descarga: ninguna
 // sección la mostraba — el ROAS y el detalle diario salen de "Campañas", que
 // se llena solo desde Meta Ads. La pestaña sigue en el Sheets por si algún día
@@ -157,6 +208,14 @@ function fetchJsonConReintento(url, intentos){
   intentos = intentos == null ? 2 : intentos;
   return fetch(url, {cache:'no-store'})
     .then(r => { if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(j => {
+      // El Apps Script responde {ok:false, error:'clave'} si falta la clave o
+      // no coincide. Se pide una sola vez y se recarga.
+      if(j && j.ok === false && j.error === 'clave'){
+        pedirClaveApi('Tu clave de acceso no esta guardada en este aparato, o cambio.');
+      }
+      return j;
+    })
     .catch(err => {
       if(intentos <= 1) throw err;
       return new Promise(resolve => setTimeout(resolve, 1500)).then(() => fetchJsonConReintento(url, intentos - 1));
@@ -408,7 +467,7 @@ function esNegocio(categoria, nota){
 let cashback = [];
 function loadCashback(){
   if(!cfg.WEBHOOK_URL) return;
-  fetchJsonConReintento(cfg.WEBHOOK_URL + '?action=cashback&_cb=' + Date.now())
+  fetchJsonConReintento(urlApi('cashback'))
     .then(resp => {
       cashback = ((resp && resp.cashback) ? resp.cashback : []).map(c => ({
         date: parseDateSmart(c.date), amount: Number(c.amount)||0, note: c.note||'',
@@ -839,14 +898,14 @@ function metaGuardarRemoto(id, data){
   if(!cfg.WEBHOOK_URL) return;
   fetch(cfg.WEBHOOK_URL, {
     method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify({type:'metaGuardar', id, data})
+    body: cuerpoApi({type:'metaGuardar', id, data})
   }).catch(() => {});
 }
 function metaEliminarRemoto(id){
   if(!cfg.WEBHOOK_URL) return;
   fetch(cfg.WEBHOOK_URL, {
     method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify({type:'metaEliminar', id})
+    body: cuerpoApi({type:'metaEliminar', id})
   }).catch(() => {});
 }
 
@@ -877,7 +936,7 @@ function migrarMetasLocalStorageUnaVez(){
 
 function loadMetas(){
   if(!cfg.WEBHOOK_URL) return;
-  fetchJsonConReintento(cfg.WEBHOOK_URL + '?action=metas&_cb=' + Date.now())
+  fetchJsonConReintento(urlApi('metas'))
     .then(resp => {
       const list = (resp && resp.metas) ? resp.metas : [];
       metas = {};
@@ -1814,7 +1873,7 @@ function renderAds(data, mk){
 let anunciosMeta = [];
 function loadAnunciosMeta(){
   if(!cfg.WEBHOOK_URL) return;
-  fetchJsonConReintento(cfg.WEBHOOK_URL + '?action=anunciosMeta&_cb=' + Date.now())
+  fetchJsonConReintento(urlApi('anunciosMeta'))
     .then(resp => {
       anunciosMeta = ((resp && resp.anunciosMeta) ? resp.anunciosMeta : []).map(a => ({
         date: parseDateSmart(a.fecha), anuncio: a.anuncio, campana: a.campana,
@@ -3016,7 +3075,7 @@ function renderTop(stocks, data){
    todavía, la tarjeta se queda oculta (no molesta). */
 function loadInstagram(){
   if(!cfg.WEBHOOK_URL) return;
-  fetchJsonConReintento(cfg.WEBHOOK_URL + '?action=instagram&_cb=' + Date.now())
+  fetchJsonConReintento(urlApi('instagram'))
     .then(resp => { if(resp && resp.instagram) renderInstagram(resp.instagram); })
     .catch(() => {});
 }
@@ -3145,7 +3204,7 @@ function segTrackUrl(tracking, link, proveedor){
 function loadSeguimiento(){
   const box = document.getElementById('segList');
   if(!cfg.WEBHOOK_URL){ if(box) box.innerHTML = needCfg('WEBHOOK_URL'); return; }
-  fetchJsonConReintento(cfg.WEBHOOK_URL + '?action=seguimiento&_cb=' + Date.now())
+  fetchJsonConReintento(urlApi('seguimiento'))
     .then(resp => {
       seguimiento = (resp && resp.seguimiento) ? resp.seguimiento : [];
       renderSeguimiento();
@@ -4229,7 +4288,7 @@ function wireSeguimientoForm(s){
     if(btn){ btn.disabled = true; btn.textContent = 'Guardando…'; }
     fetch(cfg.WEBHOOK_URL, {
       method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({type:'seguimientoGuardar', paquete})
+      body: cuerpoApi({type:'seguimientoGuardar', paquete})
     }).then(r => r.json()).then(resp => {
       if(resp.ok){ closeFullscreen(); loadSeguimiento(); }
       else { alert('⚠ ' + (resp.error||'No se pudo guardar')); if(btn){ btn.disabled=false; btn.textContent = 'Guardar'; } }
@@ -4240,7 +4299,7 @@ function wireSeguimientoForm(s){
     if(btn){ btn.disabled = true; btn.textContent = 'Quitando…'; }
     fetch(cfg.WEBHOOK_URL, {
       method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({type:'seguimientoEliminar', id:s.id})
+      body: cuerpoApi({type:'seguimientoEliminar', id:s.id})
     }).then(r => r.json()).then(resp => {
       if(resp.ok){ closeFullscreen(); loadSeguimiento(); }
       else { alert('⚠ ' + (resp.error||'No se pudo eliminar')); if(btn){ btn.disabled=false; btn.textContent = btnId==='segArchivar'?'✓ Ya llegó — quitar de la lista':'Eliminar'; } }
@@ -4295,7 +4354,7 @@ let compras = [];
 function loadCompras(){
   const box = document.getElementById('comprasList');
   if(!cfg.WEBHOOK_URL){ if(box) box.innerHTML = needCfg('WEBHOOK_URL'); return; }
-  fetchJsonConReintento(cfg.WEBHOOK_URL + '?action=compras&_cb=' + Date.now())
+  fetchJsonConReintento(urlApi('compras'))
     .then(resp => {
       compras = (resp && resp.compras) ? resp.compras : [];
       renderCompras();
@@ -4311,7 +4370,7 @@ function eliminarCompraBlock(id, onDone, onError){
     // text/plain evita el preflight CORS (que Apps Script no responde);
     // el body sigue siendo JSON, Apps Script lo lee igual con JSON.parse.
     method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify({type:'compraEliminar', id})
+    body: cuerpoApi({type:'compraEliminar', id})
   }).then(r => r.json()).then(resp => {
     if(resp.ok){ onDone(); }
     else { onError(resp.error || 'Error al eliminar'); }
@@ -4515,7 +4574,7 @@ function uploadCompraFoto(file, onStatus){
       // text/plain evita el preflight CORS (que Apps Script no responde);
       // el body sigue siendo JSON, Apps Script lo lee igual con JSON.parse.
       method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({type:'compraFoto', base64, mimeType:'image/jpeg', filename:'compra-' + Date.now() + '.jpg'})
+      body: cuerpoApi({type:'compraFoto', base64, mimeType:'image/jpeg', filename:'compra-' + Date.now() + '.jpg'})
     }).then(r => r.json());
   }).then(resp => {
     if(!resp.ok) throw new Error(resp.error || 'Error al subir la foto');
@@ -4888,7 +4947,7 @@ function wireCompraForm(c){
       // text/plain evita el preflight CORS (que Apps Script no responde);
       // el body sigue siendo JSON, Apps Script lo lee igual con JSON.parse.
       method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({type:'compraGuardar', compra:payload})
+      body: cuerpoApi({type:'compraGuardar', compra:payload})
     }).then(r => r.json()).then(resp => {
       if(resp.ok){ closeFullscreen(); loadCompras(); }
       else { statusEl.textContent = '⚠ ' + (resp.error||'Error al guardar'); }
