@@ -145,11 +145,20 @@ function guardarClaveApi(v){
   try{ localStorage.setItem(CLAVE_API_KEY, String(v||'').trim()); }catch(e){}
 }
 function pedirClaveApi(motivo){
-  if(pedirClaveApi._abierto) return;          // una sola ventana aunque fallen 6 lecturas
-  pedirClaveApi._abierto = true;
+  // UNA sola ventana por carga de pagina, y NO se vuelve a abrir aunque el
+  // usuario acepte o cancele.
+  //
+  // Antes esto reabria la ventana en bucle: prompt() es BLOQUEANTE, asi que
+  // mientras esta abierta las otras 5 lecturas tambien terminan y dejan su
+  // .then en cola. Al aceptar se llamaba a location.reload(), que NO corta la
+  // ejecucion al instante: los 5 .then encolados corrian igual y, como el
+  // flag ya se habia puesto en false, cada uno abria su propia ventana. Se
+  // veia como "escribo la clave, doy OK y me vuelve a salir".
+  if(pedirClaveApi._bloqueado) return;
+  pedirClaveApi._bloqueado = true;            // no se reinicia: solo una por carga
+
   const v = prompt((motivo || 'Escribe tu clave de acceso de Timeless.') +
                    '\n\nSe guarda solo en este aparato.');
-  pedirClaveApi._abierto = false;
   if(v && v.trim()){ guardarClaveApi(v); location.reload(); }
 }
 // URL de lectura: clave + el anti-caché que ya se usaba.
