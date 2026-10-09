@@ -259,6 +259,15 @@ function loadAll(){
   const syncLine = document.getElementById('syncLine');
   syncLine.textContent = 'Cargando datos…';
 
+  // Pintar de una lo ultimo guardado, para no dejar la pantalla esperando:
+  // el Apps Script tarda ~7 s en devolver las ~1,400 filas, bastante mas que
+  // los CSV de antes. Cuando llega la respuesta se vuelve a pintar encima.
+  const previo = loadCache();
+  if(previo && previo.data && Object.keys(previo.data).length){
+    renderAll(previo.data, []);
+    syncLine.textContent = 'Actualizando…';
+  }
+
   const pintar = (data, missing, failed) => {
     if(Object.keys(data).length === 0) return false;
     const cached = loadCache() || {data:{}};
