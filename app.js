@@ -238,50 +238,84 @@ function saveCache(data){
   try{ localStorage.setItem(CACHE_KEY, JSON.stringify(data)); }catch(e){}
 }
 
+// Lee las pestañas por el Apps Script (ya detrás de la clave). Devuelve null
+// si esa acción todavía no existe en el despliegue, para poder caer a los CSV
+// sin que el dashboard se quede en blanco.
+function cargarDatosPorApi(){
+  if(!cfg.WEBHOOK_URL) return Promise.resolve(null);
+  return fetchJsonConReintento(urlApi('datos'), 1)
+    .then(j => (j && j.ok && j.datos) ? j.datos : null)
+    .catch(() => null);
+}
+
+// Carga los datos por el Apps Script y, si no se puede, por los CSV
+// publicados. Mientras los dos caminos funcionen da exactamente lo mismo: el
+// Apps Script devuelve getDisplayValues(), que tiene la misma forma (filas de
+// textos) y el mismo formato de numeros y fechas que daba parseCSV.
+//
+// El objetivo es poder DESPUBLICAR los CSV: hoy son publicos para cualquiera
+// que tenga el enlace, y uno de ellos es Stocks, con costos y margenes.
 function loadAll(){
   const syncLine = document.getElementById('syncLine');
   syncLine.textContent = 'Cargando datos…';
 
-  const missing = SOURCES.filter(s => !cfg[s.cfgKey] && !s.optional);
-  const active  = SOURCES.filter(s => !!cfg[s.cfgKey]);
-  renderSetupCard(missing);
+  const pintar = (data, missing, failed) => {
+    if(Object.keys(data).length === 0) return false;
+    const cached = loadCache() || {data:{}};
+    const merged = Object.assign({}, cached.data, data);
+    saveCache({data: merged, time: Date.now()});
+    renderAll(merged, missing);
+    const now = new Date();
+    syncLine.textContent = 'Actualizado ' + now.toLocaleDateString('es-PE') + ' ' +
+      now.toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'}) +
+      (failed ? ' · ' + failed + ' pestaña(s) no cargaron' : '');
+    return true;
+  };
 
-  if(active.length === 0){
-    syncLine.textContent = 'Sin conexión a Sheets — configura config.js';
-    renderAll({}, missing);
-    return;
-  }
-
-  Promise.all(active.map(s =>
-    fetchCSV(cfg[s.cfgKey]).then(rows => [s.key, rows]).catch(() => [s.key, null])
-  )).then(results => {
-    const data = {};
-    let failed = 0;
-    results.forEach(([key, rows]) => {
-      if(rows) data[key] = rows; else failed++;
-    });
-
-    if(Object.keys(data).length > 0){
-      const cached = loadCache() || {data:{}};
-      const merged = Object.assign({}, cached.data, data);
-      saveCache({data: merged, time: Date.now()});
-      renderAll(merged, missing);
-      const now = new Date();
-      syncLine.textContent = 'Actualizado ' + now.toLocaleDateString('es-PE') + ' ' +
-        now.toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'}) +
-        (failed ? ' · ' + failed + ' pestaña(s) no cargaron' : '');
+  const sinNada = (missing) => {
+    const cached = loadCache();
+    if(cached){
+      renderAll(cached.data, missing);
+      syncLine.textContent = '⚠ Sin conexión — mostrando datos del ' +
+        new Date(cached.time).toLocaleDateString('es-PE');
     } else {
-      // Sin internet o URLs mal pegadas: usar el último snapshot guardado
-      const cached = loadCache();
-      if(cached){
-        renderAll(cached.data, missing);
-        syncLine.textContent = '⚠ Sin conexión — mostrando datos del ' +
-          new Date(cached.time).toLocaleDateString('es-PE');
-      } else {
-        renderAll({}, missing);
-        syncLine.textContent = '⚠ No se pudo cargar ningún dato. Revisa las URLs de config.js';
-      }
+      renderAll({}, missing);
+      syncLine.textContent = '⚠ No se pudo cargar ningún dato. Revisa las URLs de config.js';
     }
+  };
+
+  // Camino viejo: los CSV publicados de config.js.
+  const porCSV = () => {
+    const missing = SOURCES.filter(s => !cfg[s.cfgKey] && !s.optional);
+    const active  = SOURCES.filter(s => !!cfg[s.cfgKey]);
+    renderSetupCard(missing);
+    if(active.length === 0){
+      syncLine.textContent = 'Sin conexión a Sheets — configura config.js';
+      renderAll({}, missing);
+      return;
+    }
+    Promise.all(active.map(s =>
+      fetchCSV(cfg[s.cfgKey]).then(rows => [s.key, rows]).catch(() => [s.key, null])
+    )).then(results => {
+      const data = {};
+      let failed = 0;
+      results.forEach(([key, rows]) => { if(rows) data[key] = rows; else failed++; });
+      if(!pintar(data, missing, failed)) sinNada(missing);
+    });
+  };
+
+  cargarDatosPorApi().then(datos => {
+    if(datos){
+      const data = {};
+      SOURCES.forEach(s => {
+        const rows = datos[s.key];
+        if(rows && rows.length) data[s.key] = rows;
+      });
+      // Si el Apps Script contesto, config.js ya no hace falta para esto:
+      // no se muestra la tarjeta de "configura las URLs".
+      if(Object.keys(data).length > 0){ renderSetupCard([]); pintar(data, [], 0); return; }
+    }
+    porCSV();
   });
 }
 
