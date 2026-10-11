@@ -953,6 +953,27 @@ let metas = {};
 // Antes esto era fire-and-forget con .catch(()=>{}): si el Apps Script
 // contestaba que no, el dashboard seguia como si nada y tu cambio se perdia
 // en silencio. El 10-oct la meta personalizada desaparecio asi.
+// Comprueba LEYENDO si la meta quedo guardada igual a lo que se mando.
+// Hace falta porque Apps Script a veces guarda bien pero la respuesta no se
+// puede leer desde el navegador (redirecciona a otro dominio y de vez en
+// cuando devuelve una pagina de error en vez del JSON). Sin esto salia un
+// aviso de "no se guardo" cuando si se habia guardado.
+function verificarMetaGuardada(id, data){
+  return fetchJsonConReintento(urlApi('metas'), 2)
+    .then(resp => {
+      const m = ((resp && resp.metas) || []).find(x => x.id === id);
+      return !!(m && JSON.stringify(m.data) === JSON.stringify(data));
+    })
+    .catch(() => false);
+}
+
+// `avisar` = true solo donde el guardado es un acto deliberado (la meta
+// personalizada). La meta del mes se guarda en cada tecla que escribes, ahi
+// avisar seria insoportable.
+//
+// Antes esto era fire-and-forget con .catch(()=>{}): si el Apps Script
+// contestaba que no, el dashboard seguia como si nada y tu cambio se perdia
+// en silencio.
 function metaGuardarRemoto(id, data, avisar){
   if(!cfg.WEBHOOK_URL) return Promise.resolve(false);
   return fetch(cfg.WEBHOOK_URL, {
@@ -962,14 +983,19 @@ function metaGuardarRemoto(id, data, avisar){
     if(resp && resp.ok) return true;
     if(resp && resp.error === 'clave'){
       pedirClaveApi('Tu clave de acceso no esta guardada en este aparato, o cambio.');
-    } else if(avisar){
-      alert('No se pudo guardar en Sheets: ' + ((resp && resp.error) || 'sin respuesta') +
-            '\n\nQuedo guardado en este aparato. Vuelve a intentarlo en un momento.');
+      return false;
     }
-    return false;
+    throw new Error((resp && resp.error) || 'sin respuesta');
   }).catch(() => {
-    if(avisar) alert('No se pudo guardar en Sheets (sin conexion).\n\nQuedo guardado en este aparato.');
-    return false;
+    // Antes de alarmar, se comprueba de verdad.
+    if(!avisar) return false;
+    return verificarMetaGuardada(id, data).then(ok => {
+      if(!ok){
+        alert('No se pudo guardar en Sheets.\n\nQuedo guardado en este aparato: no pierdes el cambio. ' +
+              'Vuelve a abrir la meta en un rato y dale Guardar otra vez.');
+      }
+      return ok;
+    });
   });
 }
 function metaEliminarRemoto(id){
