@@ -1013,16 +1013,32 @@ function loadMetas(){
       metas = {};
       list.forEach(m => { metas[m.id] = m.data; });
 
-      // Red de seguridad: si el Sheets ya no tiene la meta personalizada pero
-      // este aparato conserva la copia, se repone sola y se vuelve a mandar.
-      // Paso el 10-oct-2026: la fila desaparecio de la pestana Metas sin que
-      // nadie tocara el boton de borrar.
+      // Red de seguridad para cuando un guardado no entra al Sheets y el
+      // cambio se perderia.
+      //
+      // PREGUNTA antes de reponer, nunca lo hace sola. Si la repusiera en
+      // silencio pasaria esto: borras la meta a proposito en el celular (que
+      // borra su copia), abres la laptop, la laptop ve que en el Sheets no
+      // esta, encuentra SU copia vieja y resucita la meta que acabas de
+      // borrar. Preguntando, eso no pasa; y si dices que no, se tira la copia
+      // para no volver a preguntar.
       if(!metas['personalizada']){
-        let copia = null;
-        try{ copia = JSON.parse(localStorage.getItem(META_PERSO_COPIA) || 'null'); }catch(e){}
+        let guardado = null;
+        try{ guardado = JSON.parse(localStorage.getItem(META_PERSO_COPIA) || 'null'); }catch(e){}
+        const copia = guardado && (guardado.meta || guardado);   // formato viejo y nuevo
         if(copia && copia.monto){
-          metas['personalizada'] = copia;
-          metaGuardarRemoto('personalizada', copia, false);
+          const cuando = guardado && guardado.guardadoEn
+            ? new Date(guardado.guardadoEn).toLocaleString('es-PE', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})
+            : 'una fecha anterior';
+          const si = confirm('Tu meta personalizada no esta en el Sheets, pero este aparato guarda una copia de ' + cuando +
+                             ' (S/ ' + copia.monto + ', hasta el ' + (copia.fechaLimite || '?') + ').\n\n' +
+                             'Si la borraste a proposito, dale Cancelar.\n\nRestaurarla?');
+          if(si){
+            metas['personalizada'] = copia;
+            metaGuardarRemoto('personalizada', copia, true);
+          } else {
+            try{ localStorage.removeItem(META_PERSO_COPIA); }catch(e){}
+          }
         }
       }
 
@@ -1247,7 +1263,7 @@ const META_PERSO_COPIA = 'timeless_metaperso_copia';
 function leerMetaPerso(){ return metas['personalizada'] || null; }
 function guardarMetaPerso(m){
   metas['personalizada'] = m;
-  try{ localStorage.setItem(META_PERSO_COPIA, JSON.stringify(m)); }catch(e){}
+  try{ localStorage.setItem(META_PERSO_COPIA, JSON.stringify({meta: m, guardadoEn: new Date().toISOString()})); }catch(e){}
   metaGuardarRemoto('personalizada', m, true);
 }
 function borrarMetaPerso(){
