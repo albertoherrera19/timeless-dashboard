@@ -519,7 +519,7 @@ function esNegocio(categoria, nota){
 let cashback = [];
 function loadCashback(){
   if(!cfg.WEBHOOK_URL) return;
-  fetchJsonConReintento(urlApi('cashback'))
+  return fetchJsonConReintento(urlApi('cashback'))
     .then(resp => {
       cashback = ((resp && resp.cashback) ? resp.cashback : []).map(c => ({
         date: parseDateSmart(c.date), amount: Number(c.amount)||0, note: c.note||'',
@@ -946,12 +946,31 @@ function renderVentasRecientes(data){
 // memoria (id -> data), poblada por loadMetas() al abrir el dashboard.
 let metas = {};
 
-function metaGuardarRemoto(id, data){
-  if(!cfg.WEBHOOK_URL) return;
-  fetch(cfg.WEBHOOK_URL, {
+// `avisar` = true solo donde el guardado es un acto deliberado (la meta
+// personalizada). La meta del mes se guarda en cada tecla que escribes, ahi
+// avisar seria insoportable.
+//
+// Antes esto era fire-and-forget con .catch(()=>{}): si el Apps Script
+// contestaba que no, el dashboard seguia como si nada y tu cambio se perdia
+// en silencio. El 10-oct la meta personalizada desaparecio asi.
+function metaGuardarRemoto(id, data, avisar){
+  if(!cfg.WEBHOOK_URL) return Promise.resolve(false);
+  return fetch(cfg.WEBHOOK_URL, {
     method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
     body: cuerpoApi({type:'metaGuardar', id, data})
-  }).catch(() => {});
+  }).then(r => r.json()).then(resp => {
+    if(resp && resp.ok) return true;
+    if(resp && resp.error === 'clave'){
+      pedirClaveApi('Tu clave de acceso no esta guardada en este aparato, o cambio.');
+    } else if(avisar){
+      alert('No se pudo guardar en Sheets: ' + ((resp && resp.error) || 'sin respuesta') +
+            '\n\nQuedo guardado en este aparato. Vuelve a intentarlo en un momento.');
+    }
+    return false;
+  }).catch(() => {
+    if(avisar) alert('No se pudo guardar en Sheets (sin conexion).\n\nQuedo guardado en este aparato.');
+    return false;
+  });
 }
 function metaEliminarRemoto(id){
   if(!cfg.WEBHOOK_URL) return;
@@ -988,11 +1007,25 @@ function migrarMetasLocalStorageUnaVez(){
 
 function loadMetas(){
   if(!cfg.WEBHOOK_URL) return;
-  fetchJsonConReintento(urlApi('metas'))
+  return fetchJsonConReintento(urlApi('metas'))
     .then(resp => {
       const list = (resp && resp.metas) ? resp.metas : [];
       metas = {};
       list.forEach(m => { metas[m.id] = m.data; });
+
+      // Red de seguridad: si el Sheets ya no tiene la meta personalizada pero
+      // este aparato conserva la copia, se repone sola y se vuelve a mandar.
+      // Paso el 10-oct-2026: la fila desaparecio de la pestana Metas sin que
+      // nadie tocara el boton de borrar.
+      if(!metas['personalizada']){
+        let copia = null;
+        try{ copia = JSON.parse(localStorage.getItem(META_PERSO_COPIA) || 'null'); }catch(e){}
+        if(copia && copia.monto){
+          metas['personalizada'] = copia;
+          metaGuardarRemoto('personalizada', copia, false);
+        }
+      }
+
       migrarMetasLocalStorageUnaVez();
       // Refresca lo que ya se había pintado con valores en 0/vacíos (loadAll
       // corre antes de que esto responda) sin esperar a que cambie el mes.
@@ -1205,13 +1238,23 @@ function renderMetaMes(data){
 // localStorage, por eso se "borraba" al entrar desde otro celular/laptop.
 // `metas` ya está cargado en memoria (loadMetas), así que leer/guardar sigue
 // siendo síncrono para el resto del código — solo cambió DÓNDE vive el dato.
+// Copia de seguridad en el propio aparato. La meta personalizada es lo unico
+// del dashboard que escribes a mano y que no se puede recalcular desde el
+// Excel: si se pierde en el Sheets, se pierde del todo. Por eso ademas de
+// mandarla al Sheets se guarda aca, y loadMetas la repone si falta.
+const META_PERSO_COPIA = 'timeless_metaperso_copia';
+
 function leerMetaPerso(){ return metas['personalizada'] || null; }
 function guardarMetaPerso(m){
   metas['personalizada'] = m;
-  metaGuardarRemoto('personalizada', m);
+  try{ localStorage.setItem(META_PERSO_COPIA, JSON.stringify(m)); }catch(e){}
+  metaGuardarRemoto('personalizada', m, true);
 }
 function borrarMetaPerso(){
   delete metas['personalizada'];
+  // Se borra tambien la copia: si no, loadMetas la repondria en la siguiente
+  // carga y la meta "revivira" sola despues de borrarla a proposito.
+  try{ localStorage.removeItem(META_PERSO_COPIA); }catch(e){}
   metaEliminarRemoto('personalizada');
 }
 function todayISO(){ const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
@@ -1925,7 +1968,7 @@ function renderAds(data, mk){
 let anunciosMeta = [];
 function loadAnunciosMeta(){
   if(!cfg.WEBHOOK_URL) return;
-  fetchJsonConReintento(urlApi('anunciosMeta'))
+  return fetchJsonConReintento(urlApi('anunciosMeta'))
     .then(resp => {
       anunciosMeta = ((resp && resp.anunciosMeta) ? resp.anunciosMeta : []).map(a => ({
         date: parseDateSmart(a.fecha), anuncio: a.anuncio, campana: a.campana,
@@ -3127,7 +3170,7 @@ function renderTop(stocks, data){
    todavía, la tarjeta se queda oculta (no molesta). */
 function loadInstagram(){
   if(!cfg.WEBHOOK_URL) return;
-  fetchJsonConReintento(urlApi('instagram'))
+  return fetchJsonConReintento(urlApi('instagram'))
     .then(resp => { if(resp && resp.instagram) renderInstagram(resp.instagram); })
     .catch(() => {});
 }
@@ -3256,7 +3299,7 @@ function segTrackUrl(tracking, link, proveedor){
 function loadSeguimiento(){
   const box = document.getElementById('segList');
   if(!cfg.WEBHOOK_URL){ if(box) box.innerHTML = needCfg('WEBHOOK_URL'); return; }
-  fetchJsonConReintento(urlApi('seguimiento'))
+  return fetchJsonConReintento(urlApi('seguimiento'))
     .then(resp => {
       seguimiento = (resp && resp.seguimiento) ? resp.seguimiento : [];
       renderSeguimiento();
@@ -4406,7 +4449,7 @@ let compras = [];
 function loadCompras(){
   const box = document.getElementById('comprasList');
   if(!cfg.WEBHOOK_URL){ if(box) box.innerHTML = needCfg('WEBHOOK_URL'); return; }
-  fetchJsonConReintento(urlApi('compras'))
+  return fetchJsonConReintento(urlApi('compras'))
     .then(resp => {
       compras = (resp && resp.compras) ? resp.compras : [];
       renderCompras();
@@ -5117,10 +5160,26 @@ document.getElementById('dsemToggle').addEventListener('click', (e) => {
 let savedTheme = 'negro';
 try{ savedTheme = localStorage.getItem(THEME_KEY) || 'negro'; }catch(e){}
 applyTheme(savedTheme);
-loadAll();
-loadCompras();
-loadInstagram();
-loadSeguimiento();
-loadAnunciosMeta();
-loadCashback();
-loadMetas();
+
+// Las lecturas salen EN FILA, no todas de golpe.
+//
+// Antes se disparaban las 7 a la vez. El Apps Script atiende de una en una,
+// y desde que la lectura de datos pasa por ahi (tarda ~7 s), las ultimas de
+// la fila esperaban mas de lo que aguantan y se rendian: por eso a veces no
+// cargaban las metas, el seguimiento o los accesorios, mientras la utilidad
+// de arriba si aparecia (esa sale del snapshot guardado).
+//
+// Orden: primero se pinta lo guardado para no dejar la pantalla esperando,
+// despues las lecturas chicas (que son las que se notan si faltan), y la
+// pesada al final.
+try{
+  const previo = loadCache();
+  if(previo && previo.data && Object.keys(previo.data).length) renderAll(previo.data, []);
+}catch(e){}
+
+(async () => {
+  for(const cargar of [loadMetas, loadCompras, loadSeguimiento, loadCashback, loadAnunciosMeta, loadInstagram]){
+    try{ await cargar(); }catch(e){}
+  }
+  loadAll();
+})();
