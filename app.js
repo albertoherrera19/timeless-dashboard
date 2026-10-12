@@ -1075,7 +1075,11 @@ function loadMetas(){
       metaMesUltimoMes = metaMesKeyActivo();
       if(LAST){ renderMetaMes(LAST.data); renderMetaPerso(LAST.data); }
       // La lista de catálogo vigente llega junto con las metas (id "catalogo").
+      // De ahí salen también los productos que ya no están en ningún lote
+      // reciente pero sí en la hoja Stocks, así que el catálogo se vuelve a
+      // armar: si las metas llegan después de loadAll, sin esto no aparecían.
       repintarVxm();
+      if(LAST) renderCatalogo(LAST.stocks, LAST.data, LAST.gastos);
     })
     .catch(() => {});
 }
@@ -3452,10 +3456,41 @@ function guardarCatPrefs(){
 // Para filtrar, "nuevo" y "camino" son lo mismo: las dos son cosas que vienen.
 function catGrupoDe(estado){ return estado === 'nuevo' ? 'camino' : estado; }
 
+// Lo que está en la hoja Stocks del Excel pero NO en ningún lote V# reciente:
+// productos que se agotaron hace meses y que Alberto puede volver a traer (el
+// collar chrome hearts, los gengar, los rosary...). Las filas de stock solo
+// traen lo de los pedidos recientes, así que sin esto desaparecían del
+// catálogo justo cuando más interesa verlos: para decidir qué reponer.
+// Los que están con el nombre en rojo en el Excel (los que piensa sacar) NO
+// entran. Vienen en la lista de catálogo que manda sync-ventas.ps1.
+function catalogoSoloEnHojaStocks(yaEstan, hoy){
+  const c = metas['catalogo'];
+  if(!c || !Array.isArray(c.vigentes)) return [];
+  const rojos = {};
+  (Array.isArray(c.rojos) ? c.rojos : []).forEach(r => { rojos[normProducto(r)] = true; });
+  const vistos = {};
+  return c.vigentes.filter(nombre => {
+    const key = normProducto(nombre);
+    if(!key || yaEstan[key] || rojos[key] || vistos[key]) return false;
+    vistos[key] = true;
+    return true;
+  }).map(nombre => {
+    const key = normProducto(nombre);
+    const uv = ULTIMA_VENTA[key] || null;
+    return {
+      producto: nombre, stock: 0, estado: 'agotado',
+      diasAgotado: uv ? Math.round((hoy - dayKey(uv)) / 86400000) : null,
+      diasPedido: null, plataforma: '', pendiente: 0, soloCatalogo: true,
+    };
+  });
+}
+
 function getCatalogo(stocks, data, gastos){
   const canjes = getCanjesPorProducto(gastos || [], stocks);
   const ultimaVenta = ULTIMA_VENTA;
   const hoy = dayKey(new Date());
+  const enStocks = {};
+  stocks.forEach(s => { if(s.precio > 0) enStocks[normProducto(s.producto)] = true; });
   return stocks
     // precio > 0 deja fuera materiales e insumos (bolsas, empaques): se
     // compran pero no se venden, así que no son catálogo.
@@ -3485,6 +3520,7 @@ function getCatalogo(stocks, data, gastos){
         pendiente: Math.max(0, Math.round(pendiente)),
       };
     })
+    .concat(catalogoSoloEnHojaStocks(enStocks, hoy))
     .sort((a, b) => {
       if(CAT_ORDEN[a.estado] !== CAT_ORDEN[b.estado]) return CAT_ORDEN[a.estado] - CAT_ORDEN[b.estado];
       if(a.estado === 'stock') return a.stock - b.stock;
@@ -3511,8 +3547,18 @@ function catalogoFilaHtml(c){
     badge = c.diasAgotado != null ? 'Agotado ' + fmtHaceDias(c.diasAgotado) : 'Agotado'; badgeCls = 'warn';
     meta = c.diasPedido != null ? 'restock ' + fmtHaceDias(c.diasPedido) : 'restock en camino';
   } else {
-    badge = c.diasAgotado != null ? 'Agotado ' + fmtHaceDias(c.diasAgotado) : 'Sin ventas aún'; badgeCls = 'bad';
+    badgeCls = 'bad';
     meta = '';
+    if(c.diasAgotado != null){
+      badge = 'Agotado ' + fmtHaceDias(c.diasAgotado);
+    } else if(c.soloCatalogo){
+      // Está en la hoja Stocks pero su última venta es de un año anterior, que
+      // el dashboard no lee. No es "sin ventas aún": es viejo.
+      badge = 'Agotado';
+      meta = 'sin ventas este año';
+    } else {
+      badge = 'Sin ventas aún';
+    }
   }
   return '<div class="cat-row ' + badgeCls + '-row">' +
       '<span class="cat-name">' + esc(c.producto) + '</span>' +
@@ -3521,7 +3567,10 @@ function catalogoFilaHtml(c){
     '</div>';
 }
 
-const CATALOGO_PREVIEW = 10;
+// Cuántas filas se asoman de CADA grupo en la tarjeta (en pantalla completa
+// se ve todo). Con 4 caben los tres estados, o las seis categorías, sin que la
+// tarjeta se haga larguísima.
+const CATALOGO_PREVIEW = 4;
 let CATALOGO_CACHE = [];
 
 function catFiltrado(){
@@ -3563,19 +3612,22 @@ function catGrupos(lista){
   ].filter(g => g.items.length > 0);
 }
 
-// tope = null muestra todo (pantalla completa); con número corta la lista de
-// la tarjeta sin romper los grupos.
+// tope = null muestra todo (pantalla completa); con número corta CADA GRUPO a
+// esa cantidad, no la lista entera. Antes era un presupuesto global de 10
+// filas: los primeros grupos se lo comían y los agotados no aparecían nunca en
+// la tarjeta (ni un solo collar agotado, por ejemplo). Cortando por grupo,
+// todos los grupos se asoman y el número del título sigue diciendo cuántos son.
 function catGruposHtml(lista, tope){
   const grupos = catGrupos(lista);
   if(grupos.length === 0) return '<div class="empty">Nada que mostrar con estos filtros.</div>';
-  let quedan = tope == null ? Infinity : tope;
   let html = '';
-  for(let i = 0; i < grupos.length && quedan > 0; i++){
+  for(let i = 0; i < grupos.length; i++){
     const g = grupos[i];
-    const items = g.items.slice(0, quedan);
-    quedan -= items.length;
+    const items = tope == null ? g.items : g.items.slice(0, tope);
+    const resto = g.items.length - items.length;
     html += '<div class="cat-grupo">' + esc(g.titulo) + ' <span class="cat-grupo-n">' + g.items.length + '</span></div>' +
-      items.map(catalogoFilaHtml).join('');
+      items.map(catalogoFilaHtml).join('') +
+      (resto > 0 ? '<div class="cat-resto">+ ' + resto + ' más</div>' : '');
   }
   return html;
 }
@@ -3591,10 +3643,9 @@ function repintarCatalogo(){
 
 function catalogoCardHtml(){
   const lista = catFiltrado();
-  const resto = lista.length - Math.min(lista.length, CATALOGO_PREVIEW);
   return catControlesHtml() +
     catGruposHtml(lista, CATALOGO_PREVIEW) +
-    (resto > 0 || lista.length > 0
+    (lista.length > 0
       ? '<button type="button" class="cat-more" data-vertodo="1">Ver catálogo completo (' + lista.length + ')</button>'
       : '');
 }

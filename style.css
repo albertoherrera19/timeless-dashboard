@@ -1132,6 +1132,7 @@ footer{
 }
 .cat-grupo:first-child{margin-top:0;}
 .cat-grupo-n{font-size:10px;opacity:.7;}
+.cat-resto{font-size:11px;color:var(--muted);padding:3px 0 0 2px;}
 
 /* Vendido por mes: selector de mes propio + filas de dos líneas (en celular
    no entra nombre, unidades, soles, frecuencia y comparación en una sola). */
