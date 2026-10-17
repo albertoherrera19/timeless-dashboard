@@ -948,6 +948,9 @@ body.drag-active{user-select:none;-webkit-user-select:none;cursor:grabbing;}
 }
 .cf-input:focus{outline:none;border-color:var(--accent);}
 .cf-textarea{min-height:70px;resize:vertical;font-family:inherit;}
+/* Nota de la meta personalizada: grande, para leer la lista de pagos entera sin deslizar. */
+.cf-textarea.mp-nota{min-height:45vh;line-height:1.5;overflow:hidden;}
+@media(min-width:1000px){.cf-textarea.mp-nota{min-height:50vh;}}
 .cf-row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 .cf-row2 .cf-label{margin-top:0;}
 

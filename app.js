@@ -1675,7 +1675,7 @@ function renderMetaPersoForm(m){
     '<button type="button" class="cf-add-btn" id="mpHitoAdd">+ Agregar meta intermedia</button>' +
 
     '<label class="cf-label">Nota (opcional)</label>' +
-    '<textarea class="cf-input cf-textarea" id="mpNota" placeholder="Ej. para qué es, a quién y cuánto le tengo que pagar...">' + esc((m&&m.nota)||'') + '</textarea>' +
+    '<textarea class="cf-input cf-textarea mp-nota" id="mpNota" placeholder="Ej. para qué es, a quién y cuánto le tengo que pagar...">' + esc((m&&m.nota)||'') + '</textarea>' +
     '<div class="cf-estado-hint">Solo la ves acá, al editar la meta — no sale en la tarjeta.</div>' +
 
     '<div class="cf-actions">' +
@@ -1696,6 +1696,16 @@ function renderHitoRowHtml(fecha, monto){
 function openMetaPersoForm(){
   const m = leerMetaPerso();
   openFullscreen(m ? 'Editar meta personalizada' : 'Nueva meta personalizada', renderMetaPersoForm(m));
+
+  // La nota es una lista de pagos que Alberto lee entera: que crezca con el
+  // texto en vez de quedarse en tres líneas con barra de desplazamiento
+  // (17-oct-2026). El alto mínimo lo pone el CSS (.mp-nota).
+  const nota = document.getElementById('mpNota');
+  if(nota){
+    const crecer = () => { nota.style.height = 'auto'; nota.style.height = (nota.scrollHeight + 4) + 'px'; };
+    nota.addEventListener('input', crecer);
+    requestAnimationFrame(crecer);
+  }
 
   const hitosList = document.getElementById('mpHitosList');
   const addBtn = document.getElementById('mpHitoAdd');
