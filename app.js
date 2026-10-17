@@ -289,28 +289,8 @@ function loadAll(){
         new Date(cached.time).toLocaleDateString('es-PE');
     } else {
       renderAll({}, missing);
-      syncLine.textContent = '⚠ No se pudo cargar ningún dato. Revisa las URLs de config.js';
+      syncLine.textContent = '⚠ No se pudo conectar con tu Sheets. Revisa tu internet y refresca.';
     }
-  };
-
-  // Camino viejo: los CSV publicados de config.js.
-  const porCSV = () => {
-    const missing = SOURCES.filter(s => !cfg[s.cfgKey] && !s.optional);
-    const active  = SOURCES.filter(s => !!cfg[s.cfgKey]);
-    renderSetupCard(missing);
-    if(active.length === 0){
-      syncLine.textContent = 'Sin conexión a Sheets — configura config.js';
-      renderAll({}, missing);
-      return;
-    }
-    Promise.all(active.map(s =>
-      fetchCSV(cfg[s.cfgKey]).then(rows => [s.key, rows]).catch(() => [s.key, null])
-    )).then(results => {
-      const data = {};
-      let failed = 0;
-      results.forEach(([key, rows]) => { if(rows) data[key] = rows; else failed++; });
-      if(!pintar(data, missing, failed)) sinNada(missing);
-    });
   };
 
   cargarDatosPorApi().then(datos => {
@@ -324,7 +304,11 @@ function loadAll(){
       // no se muestra la tarjeta de "configura las URLs".
       if(Object.keys(data).length > 0){ renderSetupCard([]); pintar(data, [], 0); return; }
     }
-    porCSV();
+    // 17-oct-2026: ya no hay CSV publicados de respaldo (se despublicaron para
+    // que nadie pueda leer costos ni gastos sin la clave). Si el Apps Script no
+    // contesta, se muestra lo último guardado en este aparato.
+    renderSetupCard([]);
+    sinNada([]);
   });
 }
 

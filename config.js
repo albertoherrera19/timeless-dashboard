@@ -1,16 +1,10 @@
 // ==================== CONFIGURACIÓN DEL DASHBOARD ====================
 //
-// Pega aquí las URLs CSV publicadas de cada pestaña de tu Google Sheets
-// "Timeless - Ventas e Inventario".
-//
-// Cómo obtener cada URL (una vez por pestaña):
-//   1. Abre el Sheets → Archivo → Compartir → Publicar en la web
-//   2. En el primer desplegable elige LA PESTAÑA (no "Todo el documento")
-//   3. En el segundo elige "Valores separados por comas (.csv)"
-//   4. Publicar → copia el enlace y pégalo abajo entre las comillas
-//
-// El enlace se ve así:
-// https://docs.google.com/spreadsheets/d/e/2PACX-XXXX/pub?gid=123456&single=true&output=csv
+// Todos los datos del Sheets "Timeless - Ventas e Inventario" se leen por el
+// Apps Script (WEBHOOK_URL, con la clave de cada aparato). Hasta el
+// 17-oct-2026 también se leían de CSV publicados en la web; esos CSV dejaban
+// ver costos y gastos a cualquiera con el enlace, así que se despublicaron y
+// sus direcciones se borraron de aquí. NO volver a publicarlos.
 
 const TIMELESS_CONFIG = {
 
@@ -18,34 +12,6 @@ const TIMELESS_CONFIG = {
   // para guardar/borrar bloques de compra y subir fotos directo desde el
   // dashboard (a diferencia de las demás pestañas, que son solo lectura).
   WEBHOOK_URL: 'https://script.google.com/macros/s/AKfycbyrBdHPotM_u1YiXfc3glhlz3aIZM6_GYsPxl4YLFAQeUpzla17j5YGRspCkd7cRix_/exec',
-
-  // Pestaña "Ventas" — una fila por MES: Mes, Ingresos, Ganancia neta
-  CSV_VENTAS: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBRgF8Fuo4jQD-iur4ziP656jtllYGtp6aSN2Uv0Cn3bGZAs1qgq9VInR9w-8dv_ESSvG37G5euD5T/pub?gid=1119449104&single=true&output=csv',
-
-  // Pestaña "Gastos" (la que llena tu app de gastos vía Apps Script)
-  CSV_GASTOS: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBRgF8Fuo4jQD-iur4ziP656jtllYGtp6aSN2Uv0Cn3bGZAs1qgq9VInR9w-8dv_ESSvG37G5euD5T/pub?gid=484743647&single=true&output=csv',
-
-  // Pestaña "Publicidad" (Semana, Plataforma, Gasto, Alcance, Ventas atrib., Ingreso est., ROAS)
-  CSV_PUBLICIDAD: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBRgF8Fuo4jQD-iur4ziP656jtllYGtp6aSN2Uv0Cn3bGZAs1qgq9VInR9w-8dv_ESSvG37G5euD5T/pub?gid=2102855848&single=true&output=csv',
-
-  // Pestaña "Stocks" (Producto, Precio, Vendidos, Stock, Gan. bruta pos., Gan. neta pos., Invertido, Cantidad pedido)
-  CSV_STOCKS: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBRgF8Fuo4jQD-iur4ziP656jtllYGtp6aSN2Uv0Cn3bGZAs1qgq9VInR9w-8dv_ESSvG37G5euD5T/pub?gid=1602555219&single=true&output=csv',
-
-  // Pestaña "Pendientes" (Producto, Cantidad, Invertido) — pedidos comprados que aún no llegan.
-  // El dashboard "apaga" solo un pendiente cuando ese producto ya tiene stock > 0 en Stocks.
-  CSV_PENDIENTES: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBRgF8Fuo4jQD-iur4ziP656jtllYGtp6aSN2Uv0Cn3bGZAs1qgq9VInR9w-8dv_ESSvG37G5euD5T/pub?gid=1727096989&single=true&output=csv',
-
-  // Pestaña "VentasDetalle" (Fecha, Producto, Venta, Utilidad) — cada venta con su fecha.
-  // Alimenta "Más vendidos (últimos 30 días)" y la tabla de rentabilidad diaria de ads.
-  CSV_VENTASDETALLE: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBRgF8Fuo4jQD-iur4ziP656jtllYGtp6aSN2Uv0Cn3bGZAs1qgq9VInR9w-8dv_ESSvG37G5euD5T/pub?gid=452915688&single=true&output=csv',
-
-  // Pestaña "Campañas" (Fecha, Campaña, Gasto) — gasto real por día y campaña desde Meta Ads.
-  // Se llena importando el archivo Campanas.csv que te genero desde tu cuenta de Meta.
-  CSV_CAMPANAS: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBRgF8Fuo4jQD-iur4ziP656jtllYGtp6aSN2Uv0Cn3bGZAs1qgq9VInR9w-8dv_ESSvG37G5euD5T/pub?gid=949011178&single=true&output=csv',
-
-  // ¿Quieres ver el dashboard con datos de ejemplo antes de conectar tu Sheets?
-  // Pon 'sample-data/ventas.csv', 'sample-data/gastos.csv',
-  // 'sample-data/publicidad.csv' y 'sample-data/stocks.csv' en los campos de arriba.
 
   // Categorías que NUNCA se restan de la utilidad. 'Inversión' = compra de
   // mercadería: ya está descontada como "costo de productos" al vender, restarla
