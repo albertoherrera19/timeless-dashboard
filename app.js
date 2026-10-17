@@ -5276,3 +5276,43 @@ try{
   }
   loadAll();
 })();
+
+// ---------- Secciones que se pueden ocultar ----------
+// Pedido de Alberto (17-oct-2026): para que el dashboard no sea tan largo,
+// estas tarjetas tienen un botón "Ocultar" junto al título. Oculta deja solo
+// el título (y el resumen corto, si tiene), y "Mostrar" la vuelve a abrir.
+// Se recuerda por aparato: al salir y volver queda como la dejaste.
+const PLEGABLES = ['segCard', 'comprasCard', 'vxmCard', 'igCard'];
+const PLEGADAS_KEY = 'timeless_cards_plegadas';
+function leerPlegadas(){
+  try{ return JSON.parse(localStorage.getItem(PLEGADAS_KEY)) || {}; }catch(e){ return {}; }
+}
+function aplicarPlegado(card, btn, plegada){
+  card.classList.toggle('plegada', plegada);
+  btn.textContent = plegada ? 'Mostrar' : 'Ocultar';
+  btn.setAttribute('aria-expanded', plegada ? 'false' : 'true');
+}
+(function(){
+  const estado = leerPlegadas();
+  PLEGABLES.forEach(id => {
+    const card = document.getElementById(id);
+    const head = card && card.querySelector('.hero-top');
+    if(!head || head.querySelector('.plegar-btn')) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'plegar-btn';
+    // Justo después del título, para que quede pegado a él y lo demás del
+    // encabezado (el "+ Agregar", el resumen) siga a la derecha.
+    const titulo = head.firstElementChild;
+    if(titulo && titulo.nextSibling) head.insertBefore(btn, titulo.nextSibling);
+    else head.appendChild(btn);
+    aplicarPlegado(card, btn, !!estado[id]);
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const e = leerPlegadas();
+      e[id] = !card.classList.contains('plegada');
+      try{ localStorage.setItem(PLEGADAS_KEY, JSON.stringify(e)); }catch(err){}
+      aplicarPlegado(card, btn, e[id]);
+    });
+  });
+})();

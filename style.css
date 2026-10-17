@@ -1216,3 +1216,41 @@ footer{
    línea en vez de cortarse, o en el celular se pierde la mitad. */
 .vxm-vel-row .vxm-l2 > span:first-child{white-space:normal;overflow:visible;}
 .vxm-tot{font-weight:700;color:var(--bone);}
+
+/* ---------- Secciones que se pueden ocultar (botón junto al título) ---------- */
+.plegar-btn{
+  margin-right:auto;
+  background:transparent;border:1px solid var(--line);color:var(--muted);
+  font-size:10.5px;font-weight:700;letter-spacing:.04em;
+  padding:3px 10px;border-radius:999px;cursor:pointer;flex-shrink:0;
+}
+.plegar-btn:hover{color:var(--accent);border-color:var(--accent);}
+.card.plegada > :not(.hero-top){display:none !important;}
+.card.plegada .hero-top .detail-btn,
+.card.plegada .hero-top .util-toggle{display:none;}
+.card.plegada{align-self:start;}
+
+/* ---------- PC: tarjetas de a dos (pedido de Alberto, 17-oct-2026) ----------
+ * Más vendidos | Ventas recientes
+ * Mejor día    | Instagram   (si Instagram no tiene datos, Mejor día va a lo ancho)
+ * Catálogo     | Vendido por mes
+ * Seguimiento  | Accesorios para traer
+ * En el celular no cambia nada: sigue una debajo de otra. */
+@media(min-width:1000px){
+  #recentCard, #ventasRecCard,
+  #diaSemanaCard, #igCard,
+  #catalogoCard, #vxmCard,
+  #segCard, #comprasCard{grid-column:auto;}
+  #diaSemanaCard:has(+ #igCard[hidden]){grid-column:1 / -1;}
+}
+/* Si de un par se oculta SOLO una, las dos pasan a lo ancho: así no queda un
+ * hueco enorme al lado de la que sigue abierta. Si se ocultan las dos, quedan
+ * lado a lado como dos barritas, que es lo más corto. */
+@media(min-width:1000px){
+  #diaSemanaCard:has(+ #igCard.plegada), #igCard.plegada{grid-column:1 / -1;}
+  #catalogoCard:has(+ #vxmCard.plegada), #vxmCard.plegada{grid-column:1 / -1;}
+  #segCard.plegada:has(+ #comprasCard:not(.plegada)),
+  #segCard.plegada + #comprasCard:not(.plegada),
+  #segCard:not(.plegada):has(+ #comprasCard.plegada),
+  #segCard:not(.plegada) + #comprasCard.plegada{grid-column:1 / -1;}
+}
