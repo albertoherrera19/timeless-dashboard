@@ -302,7 +302,7 @@ function loadAll(){
       });
       // Si el Apps Script contesto, config.js ya no hace falta para esto:
       // no se muestra la tarjeta de "configura las URLs".
-      if(Object.keys(data).length > 0){ renderSetupCard([]); pintar(data, [], 0); return; }
+      if(Object.keys(data).length > 0){ DATOS_EN_VIVO = true; renderSetupCard([]); pintar(data, [], 0); return; }
     }
     // 17-oct-2026: ya no hay CSV publicados de respaldo (se despublicaron para
     // que nadie pueda leer costos ni gastos sin la clave). Si el Apps Script no
@@ -3662,6 +3662,94 @@ function renderCatalogo(stocks, data, gastos){
       (n.camino ? ' · ' + n.camino + ' en camino' : '');
   }
   box.innerHTML = catalogoCardHtml();
+  publicarCatalogoPublico(stocks, data);
+}
+
+// ---------- Lista pública para el catálogo web ----------
+// El catálogo web (otro repo, público) NO puede leer este dashboard, el Sheets
+// ni los Excel: ahí hay costos. Lo único que se le pasa es esta lista mínima
+// —producto, estado y puesto de best seller—, que el Apps Script copia a una
+// hoja de Google APARTE, y esa hoja aparte es la que se publica como CSV.
+// Nada de cantidades, costos ni ventas (18-oct-2026).
+//
+// Estados (los mismos que pidió el chat del catálogo):
+//   en stock · quedan pocos (3 o menos) · restock en camino · agotado · oculto
+// "oculto" = producto nuevo que todavía no llega, o descontinuado (rojo) sin
+// stock. Va en la lista en vez de faltar, para que un nombre mal escrito se
+// note como error y no esconda un producto por accidente.
+let DATOS_EN_VIVO = false;          // true solo cuando llegó la respuesta del Apps Script (no la caché)
+const CATALOGO_PUBLICO_HASH_KEY = 'timeless_catalogo_publico_hash';
+const CATALOGO_PUBLICO_QUEDAN_POCOS = 3;
+const CATALOGO_PUBLICO_BEST_DIAS = 60;
+const CATALOGO_PUBLICO_BEST_TOP = 10;
+// Lo que ya está pedido pero Alberto no quiere anunciar: sale como "agotado"
+// en vez de "restock en camino". El collar chrome hearts puede quedarse en
+// aduanas y lo quiere de sorpresa.
+const CATALOGO_PUBLICO_SIN_RESTOCK = ['collar chrome hearts'];
+
+function construirCatalogoPublico(data){
+  const c = metas['catalogo'] || {};
+  const rojos = {};
+  (Array.isArray(c.rojos) ? c.rojos : []).forEach(r => { rojos[normProducto(r)] = r; });
+  const sinRestock = {};
+  CATALOGO_PUBLICO_SIN_RESTOCK.forEach(n => { sinRestock[normProducto(n)] = true; });
+
+  const filas = [];
+  const vistos = {};
+  CATALOGO_CACHE.forEach(it => {
+    const key = normProducto(it.producto);
+    if(!key || vistos[key]) return;
+    vistos[key] = true;
+    let estado;
+    if(it.stock > 0) estado = it.stock <= CATALOGO_PUBLICO_QUEDAN_POCOS ? 'quedan pocos' : 'en stock';
+    else if(rojos[key]) estado = 'oculto';
+    else if(it.estado === 'nuevo') estado = 'oculto';
+    else if(it.estado === 'camino') estado = sinRestock[key] ? 'agotado' : 'restock en camino';
+    else estado = 'agotado';
+    filas.push({key, producto: it.producto, estado, best: ''});
+  });
+  // Los descontinuados que ya no salen en ningún lote igual van, como ocultos.
+  Object.keys(rojos).forEach(key => {
+    if(vistos[key]) return;
+    vistos[key] = true;
+    filas.push({key, producto: rojos[key], estado: 'oculto', best: ''});
+  });
+
+  // Best sellers: unidades de los últimos 60 días, solo entre lo que se puede
+  // comprar hoy. Uno que se agota sale de la fila hasta que vuelva.
+  const desde = new Date(); desde.setHours(0,0,0,0); desde.setDate(desde.getDate() - CATALOGO_PUBLICO_BEST_DIAS);
+  const unidades = {};
+  getVentasDetalle(data).filter(v => v.date >= desde).forEach(v => {
+    splitCombo(v.producto).forEach(p => { const k = normProducto(p); if(k) unidades[k] = (unidades[k] || 0) + 1; });
+  });
+  filas.filter(f => (f.estado === 'en stock' || f.estado === 'quedan pocos') && unidades[f.key])
+    .sort((a, b) => unidades[b.key] - unidades[a.key] || a.producto.localeCompare(b.producto))
+    .slice(0, CATALOGO_PUBLICO_BEST_TOP)
+    .forEach((f, i) => { f.best = i + 1; });
+
+  return filas.map(f => [f.producto, f.estado, f.best]);
+}
+
+let catalogoPublicoEnviando = false;
+function publicarCatalogoPublico(stocks, data){
+  // Solo con datos recién traídos (no la foto guardada), con la lista de la
+  // hoja Stocks ya cargada, y desde un aparato que tenga la clave.
+  if(!DATOS_EN_VIVO || !metas['catalogo'] || !claveApi() || !cfg.WEBHOOK_URL) return;
+  if(catalogoPublicoEnviando || !data.ventasDetalle) return;
+  let filas;
+  try{ filas = construirCatalogoPublico(data); }catch(e){ return; }
+  if(!filas || filas.length === 0) return;
+  const firma = JSON.stringify(filas);
+  let anterior = '';
+  try{ anterior = localStorage.getItem(CATALOGO_PUBLICO_HASH_KEY) || ''; }catch(e){}
+  if(anterior === firma) return;   // nada cambió desde la última vez
+  catalogoPublicoEnviando = true;
+  fetch(cfg.WEBHOOK_URL, {
+    method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: cuerpoApi({type:'catalogoPublicoGuardar', filas})
+  }).then(r => r.json()).then(resp => {
+    if(resp && resp.ok){ try{ localStorage.setItem(CATALOGO_PUBLICO_HASH_KEY, firma); }catch(e){} }
+  }).catch(() => {}).then(() => { catalogoPublicoEnviando = false; });
 }
 
 // Delegación: los botones se vuelven a crear en cada repintado, así que el
