@@ -3687,6 +3687,47 @@ const CATALOGO_PUBLICO_BEST_TOP = 10;
 // aduanas y lo quiere de sorpresa.
 const CATALOGO_PUBLICO_SIN_RESTOCK = ['collar chrome hearts'];
 
+// Ritmo de venta por producto, en unidades por 30 días, MIDIENDO SOLO LOS DÍAS
+// QUE EL PRODUCTO ESTUVO DISPONIBLE. No es lo mismo vender 17 en un mes entero
+// que 17 en dos semanas: el segundo es más del doble de rápido.
+//  - Inicio: la PRIMERA venta del producto (o el reinicio manual de Alberto,
+//    si es más reciente), con tope de 90 días hacia atrás desde el final de la
+//    ventana. OJO: no se usa getDisponibleDesdePorProducto: reinicia la cuenta
+//    con cualquier hueco de 5 días sin ventas, y en un producto lento eso pasa
+//    todo el tiempo (probado el 18-oct: dejaba al dark knight en 6 por mes).
+//  - Final: hoy si tiene stock; si está agotado, su última venta (si no, el
+//    ritmo de algo agotado hace meses caería a cero solo por pasar el tiempo).
+//  - Mínimo 14 días de ventana, para que 3 ventas en 2 días no se proyecten
+//    a 45 por mes.
+function ritmoAjustadoPorProducto(data, stockPorKey){
+  const detalle = getVentasDetalle(data);
+  const reinicios = leerReiniciosRitmo();
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const fechas = {};
+  detalle.forEach(v => {
+    if(v.date > hoy) return;
+    splitCombo(v.producto).forEach(p => {
+      const k = normProducto(p);
+      if(k) (fechas[k] = fechas[k] || []).push(v.date);
+    });
+  });
+  const out = {};
+  Object.keys(fechas).forEach(k => {
+    const f = fechas[k];
+    const ultima = new Date(Math.max.apply(null, f));
+    const fin = (stockPorKey[k] || 0) > 0 ? hoy : ultima;
+    let ini = new Date(Math.min.apply(null, f));
+    const rein = reinicios[k] ? parseDateSmart(reinicios[k]) : null;
+    if(rein && rein > ini) ini = rein;
+    const tope = new Date(fin); tope.setDate(tope.getDate() - 90);
+    if(ini < tope) ini = tope;
+    const dias = Math.max(14, Math.round((fin - ini) / 86400000) + 1);
+    const unid = f.filter(d => d >= ini && d <= fin).length;
+    out[k] = unid / dias * 30;
+  });
+  return out;
+}
+
 function construirCatalogoPublico(data){
   const c = metas['catalogo'] || {};
   const rojos = {};
@@ -3706,13 +3747,13 @@ function construirCatalogoPublico(data){
     else if(it.estado === 'nuevo') estado = 'oculto';
     else if(it.estado === 'camino') estado = sinRestock[key] ? 'agotado' : 'restock en camino';
     else estado = 'agotado';
-    filas.push({key, producto: it.producto, estado, best: ''});
+    filas.push({key, producto: it.producto, estado, best: '', stock: it.stock});
   });
   // Los descontinuados que ya no salen en ningún lote igual van, como ocultos.
   Object.keys(rojos).forEach(key => {
     if(vistos[key]) return;
     vistos[key] = true;
-    filas.push({key, producto: rojos[key], estado: 'oculto', best: ''});
+    filas.push({key, producto: rojos[key], estado: 'oculto', best: '', stock: 0});
   });
 
   // Best sellers: unidades de los últimos 60 días, solo entre lo que se puede
@@ -3727,7 +3768,22 @@ function construirCatalogoPublico(data){
     .slice(0, CATALOGO_PUBLICO_BEST_TOP)
     .forEach((f, i) => { f.best = i + 1; });
 
-  return filas.map(f => [f.producto, f.estado, f.best]);
+  // Orden dentro de cada categoría (1 = el que más rápido se vende), por
+  // ritmo ajustado por días disponibles. Solo un número de posición: nunca el
+  // ritmo ni las unidades. Los ocultos no llevan orden. Los anillos duki son
+  // dos filas pero un solo producto para el cliente: comparten posición.
+  const stockPorKey = {};
+  filas.forEach(f => { stockPorKey[f.key] = f.stock || 0; });
+  const ritmo = ritmoAjustadoPorProducto(data, stockPorKey);
+  const porCat = {};
+  filas.filter(f => f.estado !== 'oculto').forEach(f => {
+    (porCat[catTipoDe(f.producto).id] = porCat[catTipoDe(f.producto).id] || []).push(f);
+  });
+  Object.keys(porCat).forEach(cat => {
+    porCat[cat].sort((a, b) => (ritmo[b.key] || 0) - (ritmo[a.key] || 0) || a.producto.localeCompare(b.producto))
+      .forEach((f, i) => { f.orden = i + 1; });
+  });
+  return filas.map(f => [f.producto, f.estado, f.best, f.orden || '']);
 }
 
 let catalogoPublicoEnviando = false;
