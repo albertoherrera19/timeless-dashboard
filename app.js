@@ -3783,7 +3783,10 @@ function construirCatalogoPublico(data){
     porCat[cat].sort((a, b) => (ritmo[b.key] || 0) - (ritmo[a.key] || 0) || a.producto.localeCompare(b.producto))
       .forEach((f, i) => { f.orden = i + 1; });
   });
-  return filas.map(f => [f.producto, f.estado, f.best, f.orden || '']);
+  // Quedan: la cantidad SOLO cuando son 1, 2 o 3 ("¡quedan 2!"). Con 0 o con 4
+  // o más va vacío, para que el stock real nunca se vea en público. El Apps
+  // Script vuelve a validar esto: aunque llegara otro número, no lo escribe.
+  return filas.map(f => [f.producto, f.estado, f.best, f.orden || '', (f.stock >= 1 && f.stock <= 3) ? Math.round(f.stock) : '']);
 }
 
 let catalogoPublicoEnviando = false;
