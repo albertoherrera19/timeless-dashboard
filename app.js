@@ -2721,6 +2721,7 @@ function renderYtd(ventas){
       '<div class="ytd-item"><span class="ytd-v mono ok">S/ ' + fmt0(gn) + '</span><span class="ytd-l">Ganancia neta de ventas</span></div>' +
       '<div class="ytd-item"><span class="ytd-v mono">' + fmt0(margen) + '%</span><span class="ytd-l">Margen del año</span></div>' +
       '<div class="ytd-item"><span class="ytd-v mono">S/ ' + fmt0(ing/meses) + '</span><span class="ytd-l">Promedio por mes<br>(' + meses + ' mes' + (meses===1?'':'es') + ')</span></div>' +
+      '<div class="ytd-item"><span class="ytd-v mono ok">S/ ' + fmt0(gn/meses) + '</span><span class="ytd-l">Ganancia neta por mes<br>(' + meses + ' mes' + (meses===1?'':'es') + ')</span></div>' +
     '</div>';
 }
 
