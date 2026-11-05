@@ -447,10 +447,17 @@ function catalogoProductos(stocks){
 // Devuelve true solo en el primer caso. Misma regla que usa
 // getCanjesPorProducto para decidir a qué producto restarle una unidad, así
 // las dos lecturas no se pueden desincronizar.
+// Una devolución/reembolso es plata en efectivo que sale: NUNCA es mercadería
+// regalada, aunque la nota diga 'anillos' (ej. 'Devolución 3 pares anillos'
+// por S/ 60). Sin esta guarda el comodín la tomaba como un par regalado: la
+// sacaba del efectivo y le restaba un par al pedido por llegar.
+const RX_PLATA_REAL = /devoluci|reembols/;
 function canjeEsProducto(nota, catalogo){
   const piezas = splitCombo(nota);
   if(piezas.length > 0 && piezas.every(p => catalogo[normProducto(p)])) return true;
-  return CANJE_PALABRAS_CLAVE.some(r => r.rx.test(normName(nota || '')));
+  const n = normName(nota || '');
+  if(RX_PLATA_REAL.test(n)) return false;
+  return CANJE_PALABRAS_CLAVE.some(r => r.rx.test(n));
 }
 
 function getCanjesPorProducto(gastos, stocks){
@@ -466,6 +473,7 @@ function getCanjesPorProducto(gastos, stocks){
     const todasConocidas = piezas.length > 0 && piezas.every(p => catalogo[normProducto(p)]);
     if(todasConocidas){ suma(piezas); return; }
     const nota = normName(g.nota);
+    if(RX_PLATA_REAL.test(nota)) return; // devolución en efectivo: no toca stock
     const regla = CANJE_PALABRAS_CLAVE.find(r => r.rx.test(nota));
     if(regla){ suma(regla.productos); return; }
     // Nota genérica que no matchea ningún producto ni comodín (ej. "envío"):
