@@ -4724,6 +4724,33 @@ function fmtRangoFechas(c){
   return 'Sin fecha planeada';
 }
 
+// Bloques marcados para sumar (solo en este navegador, es una calculadora:
+// no se guarda en el Sheets). Al quitar un bloque con ✓ sale solo de la suma.
+const COMPRAS_SEL_KEY = 'timeless_compras_seleccion';
+function leerSelCompras(){
+  try{ return JSON.parse(localStorage.getItem(COMPRAS_SEL_KEY) || '[]'); }catch(e){ return []; }
+}
+function guardarSelCompras(ids){
+  try{ localStorage.setItem(COMPRAS_SEL_KEY, JSON.stringify(ids)); }catch(e){}
+}
+
+// Total de todos los bloques + total de los que marcaste con el cuadrito.
+function renderComprasTotales(ordenados, sel){
+  const total = ordenados.reduce((s,c) => s + (Number(c.precioTotal)||0), 0);
+  const elegidos = ordenados.filter(c => sel.indexOf(c.id) !== -1);
+  const totalSel = elegidos.reduce((s,c) => s + (Number(c.precioTotal)||0), 0);
+  const selHtml = elegidos.length
+    ? '<div class="compras-tot-sel"><span>Seleccionados (' + elegidos.length + ')</span>' +
+        '<span class="mono accent">S/ ' + fmt(totalSel) + '</span>' +
+        '<button type="button" class="compras-tot-limpiar" id="comprasSelLimpiar">Limpiar</button></div>'
+    : '<div class="compras-tot-hint">Marca el cuadrito de los bloques que quieras sumar.</div>';
+  return '<div class="compras-totales">' +
+      '<div class="compras-tot-all"><span>Total de todo (' + ordenados.length + (ordenados.length===1?' bloque':' bloques') + ')</span>' +
+        '<span class="mono">S/ ' + fmt(total) + '</span></div>' +
+      selHtml +
+    '</div>';
+}
+
 function renderCompras(){
   const box = document.getElementById('comprasList');
   if(!box) return;
@@ -4733,7 +4760,10 @@ function renderCompras(){
   }
   const porDefecto = compras.slice().sort((a,b) => new Date(b.creadoEn||0) - new Date(a.creadoEn||0));
   const ordenados = aplicarOrdenManual(porDefecto, COMPRAS_ORDEN_KEY, c => c.id);
-  box.innerHTML = ordenados.map(c => {
+  const idsVivos = ordenados.map(c => c.id);
+  let sel = leerSelCompras().filter(id => idsVivos.indexOf(id) !== -1);
+  guardarSelCompras(sel);
+  box.innerHTML = renderComprasTotales(ordenados, sel) + ordenados.map(c => {
     const productos = c.productos || [];
     const unidades = productos.reduce((s,p) => s + (Number(p.cantidad)||0), 0);
     const nProd = productos.length;
@@ -4752,7 +4782,9 @@ function renderCompras(){
     const nNuevo = productos.filter(p => p.tipo !== 'Restock').length;
     const nRestock = productos.filter(p => p.tipo === 'Restock').length;
     const desgloseTxt = (c.estado === 'Ambos' && nProd > 0) ? ' · ' + nNuevo + ' nuevo · ' + nRestock + ' restock' : '';
-    return '<div class="compra-row" data-id="' + esc(c.id) + '">' +
+    const marcado = sel.indexOf(c.id) !== -1;
+    return '<div class="compra-row' + (marcado ? ' seleccionada' : '') + '" data-id="' + esc(c.id) + '">' +
+        '<button type="button" class="compra-sel' + (marcado ? ' on' : '') + '" aria-pressed="' + marcado + '" title="Sumar este bloque">' + (marcado ? '✓' : '') + '</button>' +
         '<span class="drag-handle" title="Arrastra para ordenar por prioridad">⠿</span>' +
         '<div class="compra-thumb">' + thumb + '</div>' +
         '<div class="compra-info">' +
@@ -4781,12 +4813,23 @@ function renderCompras(){
         if(c && c.fotos && c.fotos.length) abrirLightbox(c.fotos, 0);
       });
     }
+    el.querySelector('.compra-sel').addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const actual = leerSelCompras();
+      const i = actual.indexOf(id);
+      if(i === -1) actual.push(id); else actual.splice(i, 1);
+      guardarSelCompras(actual);
+      renderCompras();
+    });
     el.querySelector('.compra-quick-ok').addEventListener('click', (ev) => {
       ev.stopPropagation();
       if(!confirm('¿Ya pediste/compraste todo este bloque? Se va a quitar de la lista de Accesorios.')) return;
       eliminarCompraBlock(id, loadCompras, err => alert('⚠ ' + err));
     });
   });
+
+  const limpiar = document.getElementById('comprasSelLimpiar');
+  if(limpiar) limpiar.addEventListener('click', () => { guardarSelCompras([]); renderCompras(); });
 
   enableDragReorder(box, '.compra-row', '.drag-handle', ids => {
     guardarOrden(COMPRAS_ORDEN_KEY, ids);

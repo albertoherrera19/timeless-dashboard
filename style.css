@@ -885,6 +885,27 @@ body.drag-active{user-select:none;-webkit-user-select:none;cursor:grabbing;}
 }
 .compra-quick-ok:active{background:var(--ok);border-color:var(--ok);color:#0b0b0b;}
 
+/* Totales de Accesorios para traer: total de todo + suma de los marcados. */
+.compras-totales{display:flex;flex-direction:column;gap:6px;padding:4px 2px 10px;border-bottom:1px solid var(--line);margin-bottom:2px;}
+.compras-tot-all, .compras-tot-sel{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted);}
+.compras-tot-all span:first-child, .compras-tot-sel span:first-child{flex:1;}
+.compras-tot-all .mono{font-weight:800;font-size:14px;color:var(--bone);}
+.compras-tot-sel{color:var(--bone);font-weight:700;}
+.compras-tot-sel .mono{font-weight:800;font-size:16px;}
+.compras-tot-hint{font-size:11px;color:var(--muted);}
+.compras-tot-limpiar{
+  background:transparent;border:1px solid var(--line);color:var(--muted);
+  border-radius:7px;font-size:11px;padding:3px 8px;cursor:pointer;
+}
+.compra-sel{
+  width:22px;height:22px;border-radius:6px;flex-shrink:0;cursor:pointer;
+  background:transparent;border:1.5px solid var(--muted);color:#0b0b0b;
+  font-size:13px;font-weight:900;line-height:1;padding:0;
+  display:flex;align-items:center;justify-content:center;
+}
+.compra-sel.on{background:var(--accent);border-color:var(--accent);}
+.compra-row.seleccionada{background:rgba(232,68,44,.10);border-radius:8px;}
+
 /* ---------- Seguimiento de pedidos (trackings + estado 17TRACK) ---------- */
 .seg-alert{display:flex;flex-wrap:wrap;gap:8px;}
 .seg-alert:not(:empty){margin-bottom:10px;}
@@ -1256,4 +1277,15 @@ footer{
   #segCard.plegada + #comprasCard:not(.plegada),
   #segCard:not(.plegada):has(+ #comprasCard.plegada),
   #segCard:not(.plegada) + #comprasCard.plegada{grid-column:1 / -1;}
+}
+
+/* Celular: el cuadrito de sumar ocupa sitio, así que la fila se compacta un
+   poco para que el nombre del bloque siga leyéndose. */
+@media (max-width:480px){
+  .compra-row{gap:8px;}
+  .compra-thumb{width:40px;height:40px;border-radius:8px;}
+  .compra-quick-ok{width:28px;height:28px;}
+  .compra-precio{font-size:13px;}
+  .compra-top-line{flex-wrap:wrap;row-gap:3px;}
+  .compra-nombre{white-space:normal;line-height:1.25;}
 }
