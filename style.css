@@ -1289,3 +1289,5 @@ footer{
   .compra-top-line{flex-wrap:wrap;row-gap:3px;}
   .compra-nombre{white-space:normal;line-height:1.25;}
 }
+.vxm-wrap .vxm-l2 > span:first-child{white-space:normal;overflow:visible;}
+.vxm-pos{color:var(--muted);font-weight:600;margin-right:2px;}

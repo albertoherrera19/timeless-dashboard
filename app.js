@@ -1070,7 +1070,7 @@ function loadMetas(){
       // De ahí salen también los productos que ya no están en ningún lote
       // reciente pero sí en la hoja Stocks, así que el catálogo se vuelve a
       // armar: si las metas llegan después de loadAll, sin esto no aparecían.
-      repintarVxm();
+      if(LAST && LAST.data && LAST.data.ventasDetalle){ try{ renderVendidoPorMes(LAST.stocks, LAST.data); }catch(e){ repintarVxm(); } } else repintarVxm();
       if(LAST) renderCatalogo(LAST.stocks, LAST.data, LAST.gastos);
       // El costo real de lo que está por llegar (metas['bloques']) también llega
       // con las metas: repintar la proyección y los pedidos por llegar.
@@ -3892,6 +3892,142 @@ function abrirCatalogoFs(){
 
 document.getElementById('catalogoHeaderBtn').addEventListener('click', abrirCatalogoFs);
 
+// ---------- Días con stock (velocidad real) ----------
+// La velocidad de un producto solo tiene sentido sobre los días en que HABÍA
+// stock: el phantom star llegó el 27-oct y vendió 14 en 12 días; dividir eso
+// entre el mes entero (o promediar meses) lo hace ver 3 veces más lento.
+// Se reconstruye el stock de cada producto día por día:
+//  - Llegadas = las compras de las hojas V visibles (meta "bloques": cuánto
+//    llegó de cada compra = stock + vendidos de su fila). Su fecha de llegada
+//    sale de la meta "llegadas" (sync-ventas.ps1 la anota el día que ve subir
+//    el stock). Si una compra no tiene llegada anotada (las de antes de
+//    octubre), se toma el primer día en que hizo falta para cubrir una venta,
+//    con tope de DISPO_TRANSITO_MAX días después de pedirla.
+//  - Lo que vino de hojas V ya ocultas (compras viejas) entra como stock
+//    inicial ("apertura"), solo si hubo ventas antes de la primera compra visible.
+//  - Ventas = VentasDetalle (con combos y alias), incluidas las anotadas para
+//    los próximos días (entregas de mañana).
+// Un día "con stock" es uno en que amaneció con stock o en que se vendió algo.
+// Solo se mide desde el mes de la primera compra visible (antes no hay datos
+// de llegadas confiables): ahí quien llama cae al método de calendario.
+const DISPO_TRANSITO_MAX = 18;
+const DISPO_FUTURO = 3;
+const DIA_MS = 86400000;
+
+function isoDeDia(t){
+  const d = new Date(t);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function diaDeIso(s){
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || ''));
+  return m ? +new Date(+m[1], +m[2] - 1, +m[3]) : null;
+}
+function sumarDias(t, n){ const d = new Date(t); d.setDate(d.getDate() + n); return dayKey(d); }
+
+function getDisponibilidad(data, stocks, metasObj, hoyOpt){
+  const hoy = dayKey(hoyOpt || new Date());
+  const tope = sumarDias(hoy, DISPO_FUTURO);
+  const ventas = {};
+  getVentasDetalle(data).forEach(v => {
+    const dk = dayKey(v.date);
+    if(dk > tope) return;
+    splitCombo(v.producto).forEach(p => {
+      const k = normProducto(p);
+      if(!k) return;
+      const m = ventas[k] || (ventas[k] = {});
+      m[dk] = (m[dk] || 0) + 1;
+    });
+  });
+  const stockHoy = {};
+  (stocks || []).forEach(s => { const k = normProducto(s.producto); if(k) stockHoy[k] = (stockHoy[k] || 0) + (s.stock || 0); });
+  const blMeta = (metasObj && metasObj['bloques'] && metasObj['bloques'].productos) || {};
+  const llMeta = (metasObj && metasObj['llegadas'] && metasObj['llegadas'].llegadas) || {};
+  const blPorKey = {}, llPorKey = {};
+  Object.keys(blMeta).forEach(n => { blPorKey[normProducto(n)] = blMeta[n] || []; });
+  Object.keys(llMeta).forEach(n => { const k = normProducto(n); llPorKey[k] = (llPorKey[k] || []).concat(llMeta[n] || []); });
+
+  const out = {};
+  Object.keys(ventas).forEach(k => {
+    const vk = ventas[k];
+    const diasVenta = Object.keys(vk).map(Number).sort((a, b) => a - b);
+    const bloques = (blPorKey[k] || [])
+      .map((b, i) => ({f: diaDeIso(b.f), c: Math.max(0, (Number(b.s) || 0) + (Number(b.v) || 0)), h: Number(b.h) || 0, i, dia: null}))
+      .filter(b => b.f != null && b.c > 0)
+      .sort((a, b) => a.f - b.f || a.h - b.h || a.i - b.i);
+    const p = {conDatos: bloques.length > 0, diasMes: {}, unidMes: {}, tramosAgotado: [], eventos: [], apertura: 0, disp: {}, vk, inicio: null, mesDesde: null};
+    out[k] = p;
+    if(!p.conDatos) return;
+    // Cada llegada anotada va a la compra más reciente pedida antes de esa fecha.
+    (llPorKey[k] || [])
+      .map(x => ({dia: diaDeIso(x.fecha)})).filter(x => x.dia != null)
+      .sort((a, b) => a.dia - b.dia)
+      .forEach(x => {
+        const cands = bloques.filter(b => b.dia == null && b.f <= x.dia && x.dia - b.f <= 90 * DIA_MS);
+        if(cands.length) cands[cands.length - 1].dia = x.dia;
+      });
+    const primeraCompra = bloques[0].f;
+    p.mesDesde = monthKey(new Date(primeraCompra));
+    const vendidoTotal = diasVenta.reduce((s, d) => s + vk[d], 0);
+    const llegadoTotal = bloques.reduce((s, b) => s + b.c, 0);
+    const huboAntes = diasVenta.length && diasVenta[0] < primeraCompra;
+    p.apertura = huboAntes ? Math.max(0, (stockHoy[k] || 0) + vendidoTotal - llegadoTotal) : 0;
+    const inicio = huboAntes ? diasVenta[0] : primeraCompra;
+    p.inicio = inicio;
+    let stock = p.apertura;
+    let agotadoDesde = null;
+    const pendientes = bloques.slice();
+    for(let d = inicio; d <= tope; d = sumarDias(d, 1)){
+      const vendHoy = vk[d] || 0;
+      // Llegadas del día: las anotadas, las que vencen su tope de viaje, y las
+      // que hacen falta para cubrir las ventas de hoy (sin fecha anotada).
+      for(let j = 0; j < pendientes.length; j++){
+        const b = pendientes[j];
+        const llega = b.dia != null ? b.dia <= d
+          : (b.f <= d && (sumarDias(b.f, DISPO_TRANSITO_MAX) <= d || stock < vendHoy));
+        if(llega){
+          stock += b.c;
+          p.eventos.push({dia: isoDeDia(d), c: b.c, est: b.dia == null});
+          pendientes.splice(j, 1); j--;
+        }
+      }
+      const conStock = stock > 0 || vendHoy > 0;
+      if(d <= hoy || vendHoy > 0){
+        p.disp[d] = conStock;
+        if(conStock){ const mk = monthKey(new Date(d)); p.diasMes[mk] = (p.diasMes[mk] || 0) + 1; }
+      }
+      if(d <= hoy){
+        if(!conStock && agotadoDesde == null) agotadoDesde = d;
+        if(conStock && agotadoDesde != null){ p.tramosAgotado.push([isoDeDia(agotadoDesde), isoDeDia(sumarDias(d, -1))]); agotadoDesde = null; }
+      }
+      if(vendHoy){ const mk = monthKey(new Date(d)); p.unidMes[mk] = (p.unidMes[mk] || 0) + vendHoy; }
+      stock = Math.max(0, stock - vendHoy);
+    }
+    if(agotadoDesde != null) p.tramosAgotado.push([isoDeDia(agotadoDesde), null]);
+  });
+  return out;
+}
+
+// Ritmo ACTUAL (unidades por 30 días CON stock): si el producto lleva 7 o más
+// días seguidos con stock, se mide sobre esa racha (hasta 30 días), o sea
+// desde su última llegada; si la racha es más corta, se completan los últimos
+// 14 días con stock (aunque haya un hueco de agotado en el medio).
+function dispoRitmoActual(p){
+  if(!p || !p.conDatos || p.inicio == null) return null;
+  const hoy = dayKey(new Date());
+  const tope = sumarDias(hoy, DISPO_FUTURO);
+  const dias = [];
+  for(let d = tope; d >= p.inicio && dias.length < 60; d = sumarDias(d, -1)){
+    if(p.disp[d]) dias.push(d);
+  }
+  if(!dias.length) return null;
+  let racha = 1;
+  while(racha < dias.length && Math.round((dias[racha - 1] - dias[racha]) / DIA_MS) === 1) racha++;
+  const n = racha >= 7 ? Math.min(racha, 30) : Math.min(dias.length, 14);
+  const usados = dias.slice(0, n);
+  const unid = usados.reduce((s, d) => s + (p.vk[d] || 0), 0);
+  return {dias: n, unid, ritmo: unid / n * 30, desde: usados[n - 1], racha};
+}
+
 // ---------- Vendido por mes ----------
 // Qué productos salieron cada mes, agrupados por categoría. Es para mirar
 // hacia atrás: "en febrero y agosto, mis mejores meses, ¿qué tenía y qué se
@@ -3904,6 +4040,24 @@ let VXM = null;           // {meses, porMes, nombres, totMes} — ver getVendido
 let vxmMes = null;        // mes que muestra la sección; arranca en el del selector
 let vxmVista = 'mes';     // 'mes' | 'comparar' (comparar solo en pantalla completa)
 const VXM_PREVIEW = 12;   // filas que entran en la tarjeta antes de "ver todo"
+// Cómo se ve el mes: por categoría (cinturones, collares...) o todos los
+// productos juntos; y, en la lista junta, orden por más vendidos o más rápidos.
+const VXM_AGRUPAR_KEY = 'timeless_vxm_agrupar', VXM_ORDEN_KEY = 'timeless_vxm_orden';
+let vxmAgrupar = 'cat', vxmOrden = 'rapidos';
+try{
+  if(localStorage.getItem(VXM_AGRUPAR_KEY) === 'prod') vxmAgrupar = 'prod';
+  if(localStorage.getItem(VXM_ORDEN_KEY) === 'vendidos') vxmOrden = 'vendidos';
+}catch(e){}
+function vxmAgruparChipsHtml(){
+  return '<div class="cat-controls">' +
+      '<button type="button" class="cat-chip ok' + (vxmAgrupar === 'cat' ? ' on' : '') + '" data-vxm-agr="cat">Por categoría</button>' +
+      '<button type="button" class="cat-chip ok' + (vxmAgrupar === 'prod' ? ' on' : '') + '" data-vxm-agr="prod">Todos juntos</button>' +
+      (vxmAgrupar === 'prod'
+        ? '<button type="button" class="cat-chip warn' + (vxmOrden === 'rapidos' ? ' on' : '') + '" data-vxm-ord="rapidos">Más rápidos</button>' +
+          '<button type="button" class="cat-chip warn' + (vxmOrden === 'vendidos' ? ' on' : '') + '" data-vxm-ord="vendidos">Más vendidos</button>'
+        : '') +
+    '</div>';
+}
 
 function fmt1(n){ return Number(n).toLocaleString('es-PE', {maximumFractionDigits:1}); }
 
@@ -3989,7 +4143,11 @@ function getVendidoPorMes(data, stocks){
   });
   const stockU = {};
   (stocks || []).forEach(s => { const k = normProducto(s.producto); if(k) stockU[k] = s.stock; });
-  return {meses: Object.keys(porMes).sort(), porMes, nombres, totMes, precioLista, costoU, stockU, fechas};
+  // Días con stock de cada producto (ver getDisponibilidad). Si falla o aún no
+  // llegan las metas, queda null y todo cae al cálculo por calendario.
+  let dispo = null;
+  try{ dispo = getDisponibilidad(data, stocks, metas); }catch(e){ dispo = null; }
+  return {meses: Object.keys(porMes).sort(), porMes, nombres, totMes, precioLista, costoU, stockU, fechas, dispo};
 }
 
 // Días que cuentan para la frecuencia: el mes entero si ya cerró, y los días
@@ -4000,12 +4158,23 @@ function vxmDiasDelMes(mk){
   const hoy = new Date();
   return mk === monthKey(hoy) ? hoy.getDate() : new Date(a, m, 0).getDate();
 }
-function vxmFrecuencia(unid, mk){
-  const dias = vxmDiasDelMes(mk);
+// Días de ese mes en que el producto TUVO stock (null si no se puede saber:
+// meses anteriores a la primera compra visible, o metas sin cargar).
+function vxmDiasStock(k, mk){
+  const p = VXM && VXM.dispo && VXM.dispo[k];
+  if(!p || !p.conDatos || mk < p.mesDesde) return null;
+  return Math.min(p.diasMes[mk] || 0, vxmDiasDelMes(mk) + 3);
+}
+function vxmFrecuencia(unid, mk, diasStock){
+  const calendario = vxmDiasDelMes(mk);
+  const dias = diasStock ? diasStock : calendario;
   const r = dias / unid;
-  if(r <= 1) return fmt1(unid / dias) + ' al día';
-  if(r < 3) return '1 cada ' + fmt1(r) + ' días';
-  return '1 cada ' + Math.round(r) + ' días';
+  let txt;
+  if(r <= 1) txt = fmt1(unid / dias) + ' al día';
+  else if(r < 3) txt = '1 cada ' + fmt1(r) + ' días';
+  else txt = '1 cada ' + Math.round(r) + ' días';
+  if(diasStock && diasStock < calendario) txt += ' · solo ' + diasStock + (diasStock === 1 ? ' día' : ' días') + ' con stock';
+  return txt;
 }
 function vxmMesAnterior(mk){
   const [a, m] = mk.split('-').map(Number);
@@ -4020,7 +4189,7 @@ function vxmSolesCorto(n){
 }
 
 // Productos del mes agrupados por categoría, con los de más unidades arriba.
-function vxmGruposDelMes(mk){
+function vxmItemsDelMes(mk){
   const fila = VXM.porMes[mk] || {};
   // El mes en curso no se compara: 3 días de octubre contra setiembre entero
   // daría "▼ 19" en todo y solo asusta. Se compara recién cuando cierra.
@@ -4037,7 +4206,18 @@ function vxmGruposDelMes(mk){
       // null = no hay mes anterior con datos; ahí no tiene sentido comparar.
       antes: ant ? ((ant[k] && ant[k].unid) || 0) : null,
       desc: !!(vigencia && !vigencia[k]),
-    })).sort((a, b) => b.unid - a.unid || b.soles - a.soles);
+    })).map(it => {
+      // Ritmo del mes sobre los días CON stock (no sobre el calendario). Con
+      // menos de 3 días con stock o 2 unidades no se proyecta: sería ruido.
+      it.diasStock = vxmDiasStock(it.key, mk);
+      it.ritmo = (it.diasStock >= 3 && it.unid >= 2) ? it.unid / it.diasStock * 30 : null;
+      return it;
+    }).sort((a, b) => b.unid - a.unid || b.soles - a.soles);
+  return items;
+}
+
+function vxmGruposDelMes(mk){
+  const items = vxmItemsDelMes(mk);
   const orden = CAT_TIPOS.concat([CAT_OTROS]);
   return orden.map(t => {
     const its = items.filter(it => catTipoDe(it.nombre).id === t.id);
@@ -4049,7 +4229,7 @@ function vxmGruposDelMes(mk){
   }).filter(g => g.items.length > 0);
 }
 
-function vxmFilaHtml(it, mk){
+function vxmFilaHtml(it, mk, pos){
   let delta = '';
   if(it.antes != null){
     const d = it.unid - it.antes;
@@ -4062,11 +4242,12 @@ function vxmFilaHtml(it, mk){
   // "desde el 14": la primera venta del mes. Si cae tarde, casi siempre es que
   // el stock llegó ese día — no es la fecha de llegada exacta, pero se acerca.
   const desde = it.primerDia > 6 && it.primerDia !== 99 ? ' · 1ª venta el ' + it.primerDia : '';
-  return '<div class="vxm-row' + (it.desc ? ' vxm-desc' : '') + '">' +
-      '<div class="vxm-l1"><span class="vxm-name">' + esc(it.nombre) +
+  const ritmo = it.ritmo != null ? ' · <strong>ritmo ' + fmt1(it.ritmo) + '/mes</strong>' : '';
+  return '<div class="vxm-row vxm-wrap' + (it.desc ? ' vxm-desc' : '') + '">' +
+      '<div class="vxm-l1"><span class="vxm-name">' + (pos ? '<span class="vxm-pos">' + pos + '.</span> ' : '') + esc(it.nombre) +
         (it.desc ? ' <span class="vxm-tag">descontinuado</span>' : '') + '</span>' +
         '<span class="vxm-unid">' + it.unid + '</span></div>' +
-      '<div class="vxm-l2"><span>≈ S/ ' + fmt0(it.soles) + ' · ' + vxmFrecuencia(it.unid, mk) + desde + '</span>' + delta + '</div>' +
+      '<div class="vxm-l2"><span>≈ S/ ' + fmt0(it.soles) + ' · ' + vxmFrecuencia(it.unid, mk, it.diasStock) + ritmo + desde + '</span>' + delta + '</div>' +
     '</div>';
 }
 
@@ -4084,7 +4265,25 @@ function vxmPagerHtml(){
 
 // tope = null muestra todo (pantalla completa); con número corta la tarjeta
 // sin partir los grupos a la mitad de forma rara.
+function vxmListaPlanaHtml(tope){
+  const items = vxmItemsDelMes(vxmMes);
+  if(items.length === 0) return '<div class="empty">No hay ventas registradas en este mes.</div>';
+  if(vxmOrden === 'rapidos'){
+    // Los que no tienen ritmo calculable (pocos días con stock o 1 sola venta)
+    // van después, ordenados por unidades.
+    items.sort((a, b) => (b.ritmo != null) - (a.ritmo != null) || (b.ritmo || 0) - (a.ritmo || 0) || b.unid - a.unid);
+  } else {
+    items.sort((a, b) => b.unid - a.unid || (b.ritmo || 0) - (a.ritmo || 0));
+  }
+  const lista = tope == null ? items : items.slice(0, tope);
+  const unid = items.reduce((s, it) => s + it.unid, 0), soles = items.reduce((s, it) => s + it.soles, 0);
+  return '<div class="cat-grupo">Todos los productos <span class="cat-grupo-n">' + unid + (unid === 1 ? ' pieza' : ' piezas') +
+      ' · ≈ S/ ' + fmt0(soles) + ' · ' + (vxmOrden === 'rapidos' ? 'de más rápido a más lento' : 'de más a menos vendido') + '</span></div>' +
+    lista.map((it, i) => vxmFilaHtml(it, vxmMes, i + 1)).join('');
+}
+
 function vxmListaHtml(tope){
+  if(vxmAgrupar === 'prod') return vxmListaPlanaHtml(tope);
   const grupos = vxmGruposDelMes(vxmMes);
   if(grupos.length === 0) return '<div class="empty">No hay ventas registradas en este mes.</div>';
   let quedan = tope == null ? Infinity : tope;
@@ -4199,7 +4398,12 @@ function vxmVelocidad(){
       if(n > 0){ total += n; activos++; if(n > mejor){ mejor = n; mejorMes = mk; } }
     });
     const esteMes = (VXM.porMes[mkHoy] && VXM.porMes[mkHoy][k] ? VXM.porMes[mkHoy][k].unid : 0);
-    const vel = activos > 0 ? total / activos : null;
+    // Con datos de llegadas, la velocidad se mide sobre los días CON stock de
+    // la racha actual (desde la última llegada); si no, promedio de meses.
+    const act = dispoRitmoActual(VXM.dispo && VXM.dispo[k]);
+    const velMeses = activos > 0 ? total / activos : null;
+    const conStock = !!(act && act.dias >= 3);
+    const vel = conStock ? act.ritmo : velMeses;
     const stock = VXM.stockU[k] != null ? VXM.stockU[k] : null;
     const esDesc = !!(vigencia && !vigencia[k]);
     const precio = VXM.precioLista[k] || 0;
@@ -4216,7 +4420,8 @@ function vxmVelocidad(){
     out.push({
       desdeLlegada,
       key: k, nombre: VXM.nombres[k] || k,
-      vel, activos, mejor, mejorMes, esteMes, total,
+      vel, velMeses, activos, mejor, mejorMes, esteMes, total,
+      act: conStock ? act : null,
       stock, esDesc,
       // Estado: descontinuado gana sobre todo; si no, manda el stock.
       estado: esDesc ? 'desc' : (stock > 0 ? 'stock' : 'agotado'),
@@ -4257,10 +4462,14 @@ function vxmVelFilaHtml(p){
   if(p.margenMes != null) partes.push('≈ S/ ' + fmt0(p.margenMes) + '/mes');
   // Los meses que sostuvo ese ritmo: un producto con UN solo mes bueno sale
   // con velocidad alta y no es lo mismo que uno que la mantiene seis meses.
-  if(p.vel != null) partes.push('mejor ' + p.mejor + (p.mejorMes ? ' (' + vxmMesCorto(p.mejorMes) + ')' : '') +
-    ' · ' + p.activos + (p.activos === 1 ? ' mes' : ' meses'));
-  else partes.push(p.esteMes > 0 ? 'solo este mes' : 'sin ventas');
-  if(p.esteMes > 0 && p.vel != null) partes.push('este mes ' + p.esteMes);
+  if(p.act){
+    partes.push('<strong>' + p.act.unid + ' vendidos en ' + p.act.dias + ' días con stock</strong>' +
+      (p.velMeses != null ? ' · por meses sería ' + fmt1(p.velMeses) + '/mes' : ''));
+  } else if(p.vel != null){
+    partes.push('mejor ' + p.mejor + (p.mejorMes ? ' (' + vxmMesCorto(p.mejorMes) + ')' : '') +
+      ' · ' + p.activos + (p.activos === 1 ? ' mes' : ' meses'));
+  } else partes.push(p.esteMes > 0 ? 'solo este mes' : 'sin ventas');
+  if(p.esteMes > 0 && p.vel != null && !p.act) partes.push('este mes ' + p.esteMes);
   if(p.desdeLlegada){
     const d = p.desdeLlegada;
     partes.push('<strong>llegaron ' + d.unidades + ' ' + fmtHaceDias(d.dias) + '</strong>: ' + d.vend +
@@ -4281,7 +4490,7 @@ function vxmVelHtml(){
     (visibles.length === 0
       ? '<div class="empty">Nada que mostrar con estos filtros.</div>'
       : visibles.map(vxmVelFilaHtml).join('')) +
-    '<div class="stock-hint">Velocidad = unidades por mes contando <strong>solo los meses completos en que vendió algo</strong>. Los meses en cero no se promedian porque casi siempre son quiebres de stock, no falta de demanda. El mes en curso va aparte ("este mes N") para que unos pocos días no inflen el número. Los "días" son cuánto te dura el stock a ese ritmo.</div>';
+    '<div class="stock-hint">Velocidad = unidades por cada 30 días <strong>con stock</strong>. Se cuenta desde que llegó el lote (si lleva 7 días o más con stock) o, si es más reciente, sobre sus últimos 14 días con stock; los días agotados no cuentan. Si no hay fecha de llegada, se usa el promedio de meses completos en que vendió algo. Los "días" son cuánto te dura el stock a ese ritmo.</div>';
 }
 
 function vxmControlesFsHtml(){
@@ -4297,13 +4506,13 @@ function vxmFsHtml(){
   return vxmControlesFsHtml() +
     (vxmVista === 'velocidad' ? vxmVelHtml()
       : vxmVista === 'comparar' ? vxmTablaHtml()
-      : vxmPagerHtml() + vxmListaHtml(null));
+      : vxmPagerHtml() + vxmAgruparChipsHtml() + vxmListaHtml(null));
 }
 
 function vxmCardHtml(){
   const total = vxmGruposDelMes(vxmMes).reduce((s, g) => s + g.items.length, 0);
   const chip = vxmChipDescHtml(vxmVigencia());
-  return vxmPagerHtml() + (chip ? '<div class="cat-controls">' + chip + '</div>' : '') + vxmListaHtml(VXM_PREVIEW) +
+  return vxmPagerHtml() + vxmAgruparChipsHtml() + (chip ? '<div class="cat-controls">' + chip + '</div>' : '') + vxmListaHtml(VXM_PREVIEW) +
     (total > VXM_PREVIEW
       ? '<button type="button" class="cat-more" data-vxm-todo="1">Ver el mes completo (' + total + ' productos)</button>'
       : '') +
@@ -4375,6 +4584,20 @@ document.addEventListener('click', (ev) => {
     repintarVxm();
     const despues = document.querySelector('#vxmFsBody .vxm-tabla-wrap');
     if(despues && x != null) despues.scrollLeft = x;
+    return;
+  }
+  const agr = ev.target.closest('[data-vxm-agr]');
+  if(agr){
+    vxmAgrupar = agr.getAttribute('data-vxm-agr') === 'prod' ? 'prod' : 'cat';
+    try{ localStorage.setItem(VXM_AGRUPAR_KEY, vxmAgrupar); }catch(e){}
+    repintarVxm();
+    return;
+  }
+  const ord = ev.target.closest('[data-vxm-ord]');
+  if(ord){
+    vxmOrden = ord.getAttribute('data-vxm-ord') === 'vendidos' ? 'vendidos' : 'rapidos';
+    try{ localStorage.setItem(VXM_ORDEN_KEY, vxmOrden); }catch(e){}
+    repintarVxm();
     return;
   }
   const velChip = ev.target.closest('[data-vxm-vel]');
