@@ -2523,7 +2523,11 @@ function costoRealPendiente(s, pendiente){
     const bl = orden[i];
     const enCamino = Math.max(0, (Number(bl.c)||0) - (Number(bl.s)||0) - (Number(bl.v)||0));
     const n = Math.min(resto, enCamino);
-    costo += n * (Number(bl.cu)||0);
+    // Compra partida en dos tiendas (ej. 22 Temu + 18 Shein en la misma fila): el
+    // sync calcula 'cc' = costo unitario de lo que TODAVÍA falta llegar. Si no está,
+    // se usa el promedio de la fila.
+    const cuCamino = (bl.cc !== undefined && bl.cc !== null && isFinite(Number(bl.cc))) ? Number(bl.cc) : (Number(bl.cu)||0);
+    costo += n * cuCamino;
     resto -= n;
   }
   if(resto > 0){
