@@ -1072,6 +1072,9 @@ function loadMetas(){
       // armar: si las metas llegan después de loadAll, sin esto no aparecían.
       repintarVxm();
       if(LAST) renderCatalogo(LAST.stocks, LAST.data, LAST.gastos);
+      // El costo real de lo que está por llegar (metas['bloques']) también llega
+      // con las metas: repintar la proyección y los pedidos por llegar.
+      if(LAST && metas['bloques']){ try{ renderProyeccion(LAST.ventas, LAST.stocks, LAST.data, selectedMonthKey, LAST.gastos); }catch(e){} }
     })
     .catch(() => {});
 }
@@ -2496,6 +2499,40 @@ function getVendidosHistoricoSet(data){
   return set;
 }
 
+// Costo REAL de las unidades que vienen en camino. Antes se prorrateaba el
+// invertido total del producto entre todas sus compras (promedio), y si la
+// compra nueva salió más cara que las viejas, "por llegar" mostraba menos plata
+// de la que de verdad pusiste (pant chain chrome hearts: 11.56 en vez de 15.60).
+// Ahora se usa el costo unitario de cada compra (sync-ventas.ps1 lo manda en
+// metas['bloques']): las unidades pendientes se asignan primero a la compra más
+// nueva, y dentro de cada compra solo caben las que no están en stock ni
+// vendidas (cantidad - stock - vendidos). Lo que no calce en ninguna compra
+// (hojas V ocultas) se valúa al promedio, como antes. Si el dato no llegó, todo
+// sigue igual que antes.
+function costoRealPendiente(s, pendiente){
+  const b = (typeof metas !== 'undefined' && metas && metas['bloques'] && metas['bloques'].productos) || null;
+  if(!b || !(pendiente > 0)) return null;
+  const clave = Object.keys(b).find(k => normProducto(k) === normProducto(s.producto));
+  const lista = clave ? b[clave] : null;
+  if(!Array.isArray(lista) || lista.length === 0) return null;
+  // De la compra más vieja a la más nueva (sin fecha = más vieja); empate por hoja V y orden de fila.
+  const orden = lista.map((x, i) => ({x, i})).sort((a, c) =>
+    String(a.x.f || '').localeCompare(String(c.x.f || '')) || ((a.x.h||0) - (c.x.h||0)) || (a.i - c.i)).map(o => o.x);
+  let resto = pendiente, costo = 0;
+  for(let i = orden.length - 1; i >= 0 && resto > 0; i--){
+    const bl = orden[i];
+    const enCamino = Math.max(0, (Number(bl.c)||0) - (Number(bl.s)||0) - (Number(bl.v)||0));
+    const n = Math.min(resto, enCamino);
+    costo += n * (Number(bl.cu)||0);
+    resto -= n;
+  }
+  if(resto > 0){
+    const prom = s.cantidadPedido > 0 ? s.invertido / s.cantidadPedido : 0;
+    costo += resto * prom;
+  }
+  return costo;
+}
+
 function getPendientesDeStock(stocks, canjes, vendidosHist){
   canjes = canjes || {};
   vendidosHist = vendidosHist || {};
@@ -2516,7 +2553,8 @@ function getPendientesDeStock(stocks, canjes, vendidosHist){
       // Invertido/Ingresos/Ganancia neta se prorratean a la porción pendiente
       // (si ya llegó una parte, esa parte ya cuenta en "Stock actual", no acá).
       const proporcion = s.cantidadPedido > 0 ? pendiente / s.cantidadPedido : 1;
-      const invertido = s.invertido * proporcion;
+      const costoReal = costoRealPendiente(s, pendiente);
+      const invertido = costoReal !== null ? costoReal : s.invertido * proporcion;
       const ingresos = s.precio * pendiente;
       return {
         producto: s.producto,
