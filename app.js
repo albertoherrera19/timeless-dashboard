@@ -2166,6 +2166,23 @@ function buildRentTable(rows){
 
 let adsFsView = 'ult15';
 let adsFsCampaign = null;
+let adsFsFull = false; // vista "por campaña": false = solo el mes elegido, true = campaña completa
+
+// Campañas con gasto en el mes mk ('YYYY-MM'), con su rango completo (primer y último día de gasto
+// de toda la historia). Función pura: recibe las filas de getCampanas.
+function campanasDelMes(campanasAll, mk){
+  const rango = {};
+  campanasAll.forEach(c => {
+    const r = rango[c.campana] || (rango[c.campana] = {first:c.date, last:c.date, enMes:false, ultimoEnMes:null});
+    if(c.date < r.first) r.first = c.date;
+    if(c.date > r.last) r.last = c.date;
+    if(monthKey(c.date) === mk){ r.enMes = true; if(!r.ultimoEnMes || c.date > r.ultimoEnMes) r.ultimoEnMes = c.date; }
+  });
+  const nombres = Object.keys(rango).filter(n => rango[n].enMes).sort();
+  return {nombres, rango};
+}
+const MES_CORTO = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+function fmtDiaMes(d){ return d.getDate() + '-' + MES_CORTO[d.getMonth()]; }
 
 document.getElementById('adsDetailBtn').addEventListener('click', () => {
   if(!LAST || !LAST.data.campanas){
@@ -2181,6 +2198,7 @@ document.getElementById('adsDetailBtn').addEventListener('click', () => {
   const masReciente = campanasAll.slice().sort((a,b) => b.date - a.date)[0].campana;
   if(nombres.indexOf(adsFsCampaign) === -1) adsFsCampaign = masReciente;
   adsFsView = 'ult15';
+  adsFsFull = false;
   openFullscreen('Meta Ads · detalle', renderAdsFsBody());
   wireAdsFsTabs();
 });
@@ -2209,17 +2227,36 @@ function renderAdsFsBody(){
       .map(s => ({label: fmtDateShort(s.date), ads:s.ads, ventas:s.ventas, util:s.util}));
     inner = '<div class="table-title">Gasto real (todas las campañas) vs ventas · últimos 15 días</div>' + buildRentTable(rows);
   } else if(adsFsView === 'campana'){
-    const sel = '<select class="fs-select" id="adsFsCampSelect">' +
-        nombres.map(n => '<option value="' + esc(n) + '"' + (n===adsFsCampaign?' selected':'') + '>' + esc(n) + '</option>').join('') +
-      '</select>';
-    const dias = campanasAll.filter(c => c.campana === adsFsCampaign).sort((a,b) => a.date - b.date);
-    const ventasByDay = {};
-    ventasAll.forEach(v => { const k = dayKey(v.date); const s = ventasByDay[k] || (ventasByDay[k] = {ventas:0, util:0}); s.ventas += v.venta; s.util += v.utilidad; });
-    const rows = dias.map(c => {
-      const v = ventasByDay[dayKey(c.date)] || {ventas:0, util:0};
-      return {label: fmtDateShort(c.date), ads:c.gasto, ventas:v.ventas, util:v.util};
-    });
-    inner = sel + '<div class="table-title">Gasto de "' + esc(adsFsCampaign||'') + '" por día (aparece aunque solo tenga 1 día de datos)</div>' + buildRentTable(rows);
+    const mk = selectedMonthKey || monthKey(new Date());
+    const dm = campanasDelMes(campanasAll, mk);
+    if(dm.nombres.length === 0){
+      inner = '<div class="empty">Ninguna campaña tuvo gasto en ' + esc(monthLabel(mk)) + '.</div>';
+    } else {
+      if(dm.nombres.indexOf(adsFsCampaign) === -1){
+        adsFsCampaign = dm.nombres.slice().sort((a,b) => dm.rango[b].ultimoEnMes - dm.rango[a].ultimoEnMes)[0];
+        adsFsFull = false;
+      }
+      const r = dm.rango[adsFsCampaign];
+      const cruza = monthKey(r.first) !== mk || monthKey(r.last) !== mk;
+      if(!cruza) adsFsFull = false;
+      const sel = '<select class="fs-select" id="adsFsCampSelect">' +
+          dm.nombres.map(n => '<option value="' + esc(n) + '"' + (n===adsFsCampaign?' selected':'') + '>' + esc(n) + '</option>').join('') +
+        '</select>';
+      const chip = cruza
+        ? ' <button type="button" class="fs-chip' + (adsFsFull?' active':'') + '" id="adsFsFullBtn">' +
+            (adsFsFull ? 'ver solo ' + esc(monthLabel(mk)) : 'ver campaña completa (' + fmtDiaMes(r.first) + ' → ' + fmtDiaMes(r.last) + ')') +
+          '</button>'
+        : '';
+      const dias = campanasAll.filter(c => c.campana === adsFsCampaign && (adsFsFull || monthKey(c.date) === mk)).sort((a,b) => a.date - b.date);
+      const ventasByDay = {};
+      ventasAll.forEach(v => { const k = dayKey(v.date); const s = ventasByDay[k] || (ventasByDay[k] = {ventas:0, util:0}); s.ventas += v.venta; s.util += v.utilidad; });
+      const rows = dias.map(c => {
+        const v = ventasByDay[dayKey(c.date)] || {ventas:0, util:0};
+        return {label: fmtDateShort(c.date), ads:c.gasto, ventas:v.ventas, util:v.util};
+      });
+      const alcance = adsFsFull ? 'campaña completa (' + fmtDiaMes(r.first) + ' → ' + fmtDiaMes(r.last) + ')' : monthLabel(mk);
+      inner = sel + chip + '<div class="table-title">Gasto de "' + esc(adsFsCampaign||'') + '" por día · ' + esc(alcance) + '</div>' + buildRentTable(rows);
+    }
   } else { // semanal
     const byWeek = {};
     campanasAll.forEach(c => {
@@ -2252,10 +2289,19 @@ function wireAdsFsTabs(){
       wireAdsFsTabs();
     });
   });
+  const fullBtn = document.getElementById('adsFsFullBtn');
+  if(fullBtn){
+    fullBtn.addEventListener('click', () => {
+      adsFsFull = !adsFsFull;
+      setFsBody(renderAdsFsBody());
+      wireAdsFsTabs();
+    });
+  }
   const sel = document.getElementById('adsFsCampSelect');
   if(sel){
     sel.addEventListener('change', () => {
       adsFsCampaign = sel.value;
+      adsFsFull = false;
       setFsBody(renderAdsFsBody());
       wireAdsFsTabs();
     });

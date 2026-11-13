@@ -825,6 +825,8 @@ h1{
   margin-bottom:14px;
 }
 .fs-select:focus{outline:none;border-color:var(--accent);}
+.fs-chip{background:var(--chip);border:1px solid var(--line);color:var(--bone);font-size:12px;font-weight:700;height:38px;padding:0 12px;border-radius:10px;cursor:pointer;margin:0 0 14px 8px;}
+.fs-chip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
 .fs-metric-value{font-size:34px;font-weight:800;margin:4px 0 18px;}
 .fs-metric-row{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px dashed var(--line);}
 .fs-metric-row:last-child{border-bottom:none;}
