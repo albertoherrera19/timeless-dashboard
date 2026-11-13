@@ -2542,7 +2542,8 @@ function getPendientesDeStock(stocks, canjes, vendidosHist){
   vendidosHist = vendidosHist || {};
   return stocks.map(s => {
     const canjeado = canjes[normProducto(s.producto)] || 0;
-    return { s, pendiente: s.cantidadPedido - s.stock - s.vendidos - canjeado };
+    const pxb = pendientePorBloques(s);
+    return { s, pendiente: pxb !== null ? pxb : s.cantidadPedido - s.stock - s.vendidos - canjeado };
   })
     // Requiere precio > 0: así se excluyen materiales/insumos (bolsas, empaques,
     // etc.) que se compran sin llegar todavía pero nunca se venden — esos van
@@ -3437,6 +3438,10 @@ let ULTIMA_VENTA = {};
 // Ahí es mejor no mostrar fecha que mostrar una falsa.
 function fechaPedidoFiable(s){
   if(!s.fechaPedido) return false;
+  // Si hay un bloque de compra que aun no llega, la fecha de Stocks es la del
+  // pedido mas nuevo: una venta de unidades viejas no la desfasa.
+  const bl = bloquesDeProducto(s);
+  if(bl && bl.some(bloqueEnCamino)) return true;
   const uv = ULTIMA_VENTA[normProducto(s.producto)];
   return !uv || dayKey(s.fechaPedido) >= dayKey(uv);
 }
@@ -3530,6 +3535,47 @@ function catalogoSoloEnHojaStocks(yaEstan, hoy){
   });
 }
 
+// ---------- Pendiente por bloques de compra ----------
+// Antes: pendiente = pedido - stock - vendidos - canjes (de TODA la historia), y
+// los canjes/muestras de lotes viejos restaban del pedido nuevo que aun no
+// llega (anillo demon pidio 40 y mostraba 38). Ahora se mira cada compra
+// (metas['bloques'], que manda el sync): una compra que no ha llegado esta
+// pendiente completa; una que ya llego solo cuenta si venia partida en dos
+// tiendas (l) y falta una; si ya llego sin partir, lo que falta son canjes,
+// muestras o perdidas, no algo en camino. Devuelve null si no hay datos.
+function bloquesDeProducto(s){
+  const b = (typeof metas !== 'undefined' && metas && metas['bloques'] && metas['bloques'].productos) || null;
+  if(!b) return null;
+  const k = normProducto(s.producto);
+  const clave = Object.keys(b).find(x => normProducto(x) === k);
+  const lista = clave ? b[clave] : null;
+  return (Array.isArray(lista) && lista.length > 0) ? lista : null;
+}
+
+// Una compra que no llegó y se pidió hace más de BLOQUE_PERDIDO_DIAS ya no está
+// "en camino": se perdió o se dio de baja (pasó con los 20 collares púas punk
+// delgados de setiembre, anotados como pérdida). Ningún envío tarda tanto.
+const BLOQUE_PERDIDO_DIAS = 45;
+function bloqueEnCamino(bl){
+  const st = Number(bl.s) || 0, v = Number(bl.v) || 0;
+  if(st + v !== 0) return false;
+  const f = parseDateSmart(bl.f);
+  if(!f) return true;
+  return (dayKey(new Date()) - dayKey(f)) / 86400000 <= BLOQUE_PERDIDO_DIAS;
+}
+
+function pendientePorBloques(s){
+  const lista = bloquesDeProducto(s);
+  if(!lista) return null;
+  let total = 0;
+  lista.forEach(bl => {
+    const c = Number(bl.c) || 0, st = Number(bl.s) || 0, v = Number(bl.v) || 0;
+    if(st + v === 0){ if(bloqueEnCamino(bl)) total += c; }
+    else if(Array.isArray(bl.l) && bl.l.length > 0) total += Math.max(0, c - st - v);
+  });
+  return total;
+}
+
 function getCatalogo(stocks, data, gastos){
   const canjes = getCanjesPorProducto(gastos || [], stocks);
   const ultimaVenta = ULTIMA_VENTA;
@@ -3545,7 +3591,8 @@ function getCatalogo(stocks, data, gastos){
       const canjeado = canjes[key] || 0;
       // Mismo cálculo que getPendientesDeStock: lo pedido que todavía no está
       // ni en stock ni vendido ni canjeado sigue en camino.
-      const pendiente = s.cantidadPedido - s.stock - s.vendidos - canjeado;
+      const pxb = pendientePorBloques(s);
+      const pendiente = pxb !== null ? pxb : s.cantidadPedido - s.stock - s.vendidos - canjeado;
       const enCamino = pendiente > 0;
       const uv = ultimaVenta[key] || null;
       const diasAgotado = (s.stock <= 0 && uv) ? Math.round((hoy - dayKey(uv)) / 86400000) : null;
