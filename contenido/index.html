@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Timeless - Contenido</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#141414">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Contenido">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body data-tab="hoy">
+<div id="demo"></div>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">Timeless Store · Panel de contenido</div>
+      <h1>Contenido</h1>
+      <div class="sync-line" id="syncLine" role="status" aria-live="polite">Cargando…</div>
+    </div>
+    <div class="head-btns">
+      <button class="icon-btn" id="refreshBtn" title="Actualizar" aria-label="Actualizar datos"></button>
+      <a class="link-dash" href="../">Dashboard de ventas</a>
+    </div>
+  </header>
+  <div id="avisos"></div>
+  <main>
+    <section class="sec t-hoy" id="sec-alertas" aria-label="Alertas"></section>
+    <div class="cols">
+      <section class="sec t-semana card" id="sec-plan" aria-label="Plan de la semana"></section>
+      <div class="right">
+        <section class="sec t-hoy only-mobile card" id="sec-hoy" aria-label="Lo de hoy"></section>
+        <section class="sec t-metas card" id="sec-metas" aria-label="Metas semanales"></section>
+        <section class="sec t-productos card" id="sec-prod" aria-label="Productos"></section>
+      </div>
+    </div>
+  </main>
+</div>
+<nav class="tabbar" id="tabbar" role="tablist" aria-label="Secciones"></nav>
+<div class="ov" id="ov" hidden></div>
+
+<script src="../config.js"></script>
+<script src="core.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
