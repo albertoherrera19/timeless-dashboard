@@ -1,5 +1,5 @@
 // Service worker de Timeless Contenido: RED PRIMERO, copia en caché solo como respaldo offline.
-const CACHE = 'timeless-contenido-v2';
+const CACHE = 'timeless-contenido-v3';
 const ASSETS = ['./', './index.html', './estilo.css', './core.js', './ui.js', './manifest.json',
   '../app.js', '../config.js', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'favicon.png'];
 

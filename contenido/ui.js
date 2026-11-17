@@ -77,7 +77,9 @@ const S = {
   tab: 'hoy', semana: T.semanaId(), carga: 'cargando', ultimaOk: null, guardado: 'ninguno',
   abiertos: {}, fEstado: '', fCat: '', fechaAbierta: '', fechaVal: {}, verMasComent: false,
   fase: null, avisoErr: null, notaForm: false, notaHechas: false, notaVal: {txt:'', fec:'', hor:''},
+  vistaPlan: 'checklist', mdAbiertos: {}, mdIrHoy: false,
 };
+try{ const v = localStorage.getItem('timeless_contenido_vistaplan'); if(v === 'completo' || v === 'checklist') S.vistaPlan = v; }catch(e){}
 try{ const t = localStorage.getItem('timeless_contenido_tab'); if(['hoy','semana','productos','metas'].indexOf(t) >= 0) S.tab = t; }catch(e){}
 function esDesktop(){ return window.matchMedia('(min-width:1024px)').matches; }
 function hhmm(d){ return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0'); }
@@ -278,14 +280,81 @@ function htmlDia(sem, d){
     '<span class="dia-cnt mono' + (c.n && c.l === c.n ? ' full' : '') + '">' + cnt + '</span><span class="dia-chev">' + ic('chev') + '</span></button>' +
     '<div class="dia-body">' + (d.items.length ? d.items.map(it => htmlItem(sem, it)).join('') : '<div class="dia-vacio">Nada planeado este día.</div>') + '</div></div>';
 }
+/* ---------- Plan completo (Markdown del chat de creativos) ----------
+   Lector chico y seguro: primero se escapa TODO el texto y recién después se
+   ponen las etiquetas (títulos, negritas, listas, citas, separadores). */
+function mdInline(s){
+  return esc(s).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>');
+}
+function mdHtml(md){
+  const out = [];
+  let lista = null, cita = null, parr = [];
+  const cerrarParr = () => { if(parr.length){ out.push('<p>' + parr.map(mdInline).join('<br>') + '</p>'); parr = []; } };
+  const cerrarLista = () => { if(lista){ out.push('<ul>' + lista.map(x => '<li>' + mdInline(x) + '</li>').join('') + '</ul>'); lista = null; } };
+  const cerrarCita = () => { if(cita){ out.push('<blockquote>' + cita.map(x => x ? mdInline(x) : '').join('<br>').replace(/(<br>){2,}/g, '<br><br>') + '</blockquote>'); cita = null; } };
+  const cerrar = () => { cerrarParr(); cerrarLista(); cerrarCita(); };
+  String(md || '').replace(/\r/g, '').split('\n').forEach(raw => {
+    const l = raw.replace(/\s+$/, '');
+    let m;
+    if(/^>\s?/.test(l)){ cerrarParr(); cerrarLista(); (cita || (cita = [])).push(l.replace(/^>\s?/, '')); return; }
+    cerrarCita();
+    if(!l.trim()){ cerrarParr(); cerrarLista(); return; }
+    if(/^-{3,}$/.test(l.trim())){ cerrar(); out.push('<hr>'); return; }
+    if((m = /^(#{1,4})\s+(.*)$/.exec(l))){ cerrar(); const n = Math.min(4, m[1].length + 2); out.push('<h' + n + '>' + mdInline(m[2]) + '</h' + n + '>'); return; }
+    if((m = /^\s*[-*]\s+(.*)$/.exec(l))){ cerrarParr(); (lista || (lista = [])).push(m[1]); return; }
+    cerrarLista(); parr.push(l);
+  });
+  cerrar();
+  return out.join('');
+}
+const DIA_MD = {LUNES:0, MARTES:1, MIERCOLES:2, JUEVES:3, VIERNES:4, SABADO:5, DOMINGO:6};
+// Parte el Markdown en: intro (antes del primer "## ") y un bloque por día.
+function mdPorDias(md, sem){
+  const partes = String(md || '').replace(/\r/g, '').split(/\n(?=## )/);
+  const intro = partes[0].startsWith('## ') ? '' : partes.shift();
+  const lun = T.deIso(sem), hoy = T.iso(new Date());
+  return {intro, dias: partes.map((p, i) => {
+    const titulo = p.split('\n')[0].replace(/^##\s+/, '');
+    const nombre = titulo.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().split(/[^A-Z]/)[0];
+    const idx = DIA_MD[nombre];
+    const fecha = (idx != null && lun) ? T.iso(T.sumarDias(lun, idx)) : 'x' + i;
+    return {titulo, fecha, hoy: fecha === hoy, cuerpo: p.split('\n').slice(1).join('\n')};
+  })};
+}
+function htmlPlanCompleto(sem, pc){
+  const {intro, dias} = mdPorDias(pc.md, sem);
+  const hayHoy = dias.some(d => d.hoy);
+  let h = '<div class="plan-meta">Plan completo del chat "Marketing y creativos"' + (pc.subido ? ' · ' + esc(horaLocal(pc.subido)) : '') + '</div>';
+  if(hayHoy) h += '<button class="btn sm" data-act="md-hoy">' + ic('cal') + 'Ir a hoy</button>';
+  if(intro.trim()){
+    const ab = !!S.mdAbiertos['intro'];
+    h += '<div class="md-dia md-intro' + (ab ? ' abierto' : '') + '"><button type="button" class="dia-h" data-act="md-dia" data-f="intro" aria-expanded="' + ab + '"><span class="dia-nom">Resumen y reglas</span><span class="dia-chev">' + ic('chev') + '</span></button>' +
+      (ab ? '<div class="md">' + mdHtml(intro) + '</div>' : '') + '</div>';
+  }
+  return h + dias.map(d => {
+    const ab = S.mdAbiertos[d.fecha] != null ? S.mdAbiertos[d.fecha] : d.hoy;
+    return '<div class="md-dia' + (d.hoy ? ' hoy' : '') + (ab ? ' abierto' : '') + '" id="md-' + esc(d.fecha) + '"><button type="button" class="dia-h" data-act="md-dia" data-f="' + esc(d.fecha) + '" aria-expanded="' + ab + '">' +
+      '<span class="dia-nom">' + mdInline(d.titulo) + '</span>' + (d.hoy ? '<span class="dia-hoy">HOY</span>' : '') + '<span class="dia-chev">' + ic('chev') + '</span></button>' +
+      (ab ? '<div class="md">' + mdHtml(d.cuerpo) + '</div>' : '') + '</div>';
+  }).join('');
+}
+
 function htmlPlan(){
   const sem = S.semana, lista = semanasLista(), i = lista.indexOf(sem);
-  const plan = T.planDe(sem);
+  const plan = T.planDe(sem), pc = T.planCompletoDe(sem);
   let h = '<div class="sec-head"><div><h2 class="section-label">Plan de la semana</h2></div>' +
     '<div class="week-nav"><button class="icon-btn" data-act="semana" data-d="-1" aria-label="Semana anterior"' + (i <= 0 ? ' disabled style="opacity:.35"' : '') + '>' + ic('izq') + '</button>' +
     '<span class="lbl">' + esc(etiquetaSemana(sem)) + '</span>' +
     '<button class="icon-btn" data-act="semana" data-d="1" aria-label="Semana siguiente"' + (i >= lista.length - 1 ? ' disabled style="opacity:.35"' : '') + '>' + ic('der') + '</button></div>' +
     '<button class="btn sm" data-act="plan-abrir">Cargar plan</button></div>';
+  // Si hay plan completo, se elige entre la checklist (para marcar) y el texto completo (para leer).
+  const vista = pc ? (plan ? S.vistaPlan : 'completo') : 'checklist';
+  if(pc){
+    h += '<div class="seg" role="tablist" aria-label="Cómo ver el plan">' +
+      '<button role="tab" data-act="vista-plan" data-v="checklist" aria-selected="' + (vista === 'checklist') + '"' + (plan ? '' : ' disabled') + '>Checklist</button>' +
+      '<button role="tab" data-act="vista-plan" data-v="completo" aria-selected="' + (vista === 'completo') + '">Plan completo</button></div>';
+  }
+  if(vista === 'completo') return h + htmlPlanCompleto(sem, pc);
   if(!plan){
     return h + '<div class="vacio"><b>Aún no hay plan para esta semana</b><p>El plan llega solo cada noche desde el archivo que deja el chat "Marketing y creativos". También puedes pegarlo tú a mano.</p><p>Los posts e historias se marcan solos cuando Instagram ya los muestra; también puedes marcarlos tú.</p>' +
       '<button class="btn primary" data-act="plan-abrir">Cargar plan</button></div>';
@@ -303,7 +372,8 @@ function htmlHoy(){
   const d = diasDeSemana(sem, plan).find(x => x.hoy);
   if(!d || !d.items.length) return h + '<div class="vacio"><b>Hoy no hay nada planeado</b><p>Descansa o mira la pestaña Semana.</p></div>';
   const c = cuentaDia(sem, d);
-  return h + '<div class="plan-meta">' + c.l + '/' + c.n + ' listos</div>' + d.items.map(it => htmlItem(sem, it)).join('');
+  const verCompleto = T.planCompletoDe(sem) ? '<button class="btn sm" data-act="md-hoy">' + ic('cal') + 'Ver el plan completo de hoy</button>' : '';
+  return h + '<div class="plan-meta">' + c.l + '/' + c.n + ' listos</div>' + verCompleto + d.items.map(it => htmlItem(sem, it)).join('');
 }
 
 /* ---------- Metas ---------- */
@@ -476,6 +546,16 @@ document.addEventListener('click', async ev => {
       break;
     }
     case 'plan-abrir': abrirPlan(); break;
+    case 'vista-plan': S.vistaPlan = b.dataset.v; try{ localStorage.setItem('timeless_contenido_vistaplan', S.vistaPlan); }catch(e){} render(); break;
+    case 'md-dia': { const f = b.dataset.f; const hoyF = T.iso(new Date()); const cur = S.mdAbiertos[f] != null ? S.mdAbiertos[f] : f === hoyF; S.mdAbiertos[f] = !cur; render(); break; }
+    case 'md-hoy': {
+      const hoyF = T.iso(new Date());
+      S.semana = T.semanaId(); S.vistaPlan = 'completo'; S.mdAbiertos[hoyF] = true;
+      if(!esDesktop()){ S.tab = 'semana'; try{ localStorage.setItem('timeless_contenido_tab', 'semana'); }catch(e){} pintaTabs(); }
+      render();
+      const el = document.getElementById('md-' + hoyF); if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
+      break;
+    }
     case 'plan-guardar': {
       try{ const p = T.guardarPlanTexto($('planTxt').value); S.semana = p.semana; S.abiertos = {}; cerrarOv(); render(); }
       catch(e){ $('planErr').textContent = e.message || 'No se pudo guardar el plan.'; }

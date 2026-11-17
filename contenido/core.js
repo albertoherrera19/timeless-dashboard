@@ -187,17 +187,20 @@ function parsePlan(texto){
       out.dias.push(dia);
       return;
     }
-    m = /^([A-ZÁÉÍÓÚ]+)\s+(\d{1,2}:\d{2})(?:\s*[-–]\s*(\d{1,2}:\d{2}))?\s*\|\s*([^|]*?)\s*(?:\|\s*(.*?)\s*)?$/i.exec(l);
+    m = /^([A-ZÁÉÍÓÚ]+(?:\s*\+\s*[A-ZÁÉÍÓÚ]+)?)\s+(\d{1,2}:\d{2})(?:\s*[-–]\s*(\d{1,2}:\d{2}))?\s*\|\s*([^|]*?)\s*(?:\|\s*(.*?)\s*)?$/i.exec(l);
     if(m && dia){
-      const tipo = TIPOS[normTxt(m[1]).toUpperCase()];
-      if(!tipo){ out.errores.push('Línea ' + (n+1) + ': tipo desconocido "' + m[1] + '"'); return; }
+      // "POST+TIKTOK" = un post que también va a TikTok (cuenta como post, con tiktok:true).
+      const partes = m[1].split('+').map(p => TIPOS[normTxt(p).toUpperCase()]);
+      const tipo = partes[0];
+      if(!tipo || partes.some(p => !p)){ out.errores.push('Línea ' + (n+1) + ': tipo desconocido "' + m[1] + '"'); return; }
+      const extraTiktok = partes.length > 1 && partes.indexOf('tiktok') > 0;
       const hora = m[2].padStart(5, '0');
       const texto = m[4] || '';
       const mismo = dia.items.filter(it => it.tipo === tipo && it.hora === hora).length;
       dia.items.push({
         id: dia.fecha + '|' + tipo + '|' + hora + '|' + mismo,
         tipo, hora, horaFin: m[3] || '', texto, producto: (m[5] || '').trim(),
-        tiktok: tipo === 'tiktok' || /tik ?tok/i.test(texto),
+        tiktok: tipo === 'tiktok' || extraTiktok || /tik ?tok/i.test(texto),
       });
       return;
     }
@@ -311,7 +314,21 @@ function planDe(semana){
   return parsed;
 }
 function semanasConPlan(){
-  return Object.keys(METAS).filter(id => /^contenido-plan-\d{4}-\d{2}-\d{2}$/.test(id)).map(id => id.slice(15)).sort();
+  const s = {};
+  Object.keys(METAS).forEach(id => {
+    const m = /^contenido-plan(?:completo)?-(\d{4}-\d{2}-\d{2})$/.exec(id);
+    if(m) s[m[1]] = true;
+  });
+  return Object.keys(s).sort();
+}
+// Plan COMPLETO en Markdown (láminas, descripciones de IG/TikTok, historias con
+// fondo y texto). Lo deja el chat de creativos como plan-AAAA-MM-DD-completo.md
+// y lo sube el sync (o su script). Id "contenido-plancompleto-AAAA-MM-DD".
+// Devuelve {md, archivo, subido} o null. La pantalla lo muestra en "Semana".
+function planCompletoDe(semana){
+  const p = METAS['contenido-plancompleto-' + semana];
+  const md = p && (typeof p.md === 'string' ? p.md : (p.md && p.md.value));
+  return md ? {md, archivo: p.archivo || '', subido: p.subido || ''} : null;
 }
 function guardarPlanTexto(texto){
   const p = parsePlan(texto);
@@ -688,7 +705,7 @@ window.TLC = {
   productos, alertas, fechasClave, CATEGORIAS,
   // plan
   semanaId, lunesDe, iso, deIso, sumarDias, fechaCorta, DIAS_CORTO,
-  planDe, semanasConPlan, parsePlan, guardarPlanTexto,
+  planDe, semanasConPlan, parsePlan, guardarPlanTexto, planCompletoDe,
   ESTADOS, estadoItem, marcarItem, siguienteEstado,
   // metas
   avanceSemana, setMetasSemanales, ajustes, tiktokManual, setTiktokManual,
