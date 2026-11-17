@@ -1,7 +1,7 @@
 // Service worker de Timeless Contenido: RED PRIMERO, copia en caché solo como respaldo offline.
-const CACHE = 'timeless-contenido-v1';
+const CACHE = 'timeless-contenido-v2';
 const ASSETS = ['./', './index.html', './estilo.css', './core.js', './ui.js', './manifest.json',
-  '../app.js', '../config.js', '../icon-192.png', '../icon-512.png', '../apple-touch-icon.png'];
+  '../app.js', '../config.js', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'favicon.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => Promise.all(ASSETS.map((u) => c.add(u).catch(() => null)))));

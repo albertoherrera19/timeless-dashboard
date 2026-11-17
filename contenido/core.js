@@ -287,6 +287,7 @@ function mezclarDoc(id, remoto, local){
     return { metas: mt || null, ultimoPost: mezclarMapa(remoto.ultimoPost, local.ultimoPost),
              checks: mezclarMapa(remoto.checks, local.checks) };
   }
+  if(id === 'contenido-notas') return { items: mezclarMapa(remoto.items, local.items) };
   return local; // plan: reemplazo completo
 }
 function encolar(id, parcial){
@@ -323,7 +324,37 @@ function guardarPlanTexto(texto){
   return p;
 }
 function marcasDe(semana){ return METAS['contenido-marcas-' + semana] || {items:{}, tiktok:{n:0, t:0}}; }
-function estadoItem(semana, itemId){ const it = marcasDe(semana).items[itemId]; return (it && it.e) || 'pendiente'; }
+// Estado de un ítem: lo que marcó alguien (Alberto o el chat de creativos)
+// gana siempre; si nadie lo marcó, se mira Instagram: si ese día salió un post,
+// el post del plan cuenta como publicado; si salieron N historias, las N
+// primeras historias del plan de ese día también. Así se marca solo.
+function estadoItem(semana, itemId){ return estadoItemInfo(semana, itemId).e; }
+function estadoItemInfo(semana, itemId){
+  const it = marcasDe(semana).items[itemId];
+  if(it && it.e) return {e: it.e, auto: false, t: it.t || 0};
+  const a = autoEstados(semana)[itemId];
+  return a ? {e: a, auto: true, t: 0} : {e: 'pendiente', auto: false, t: 0};
+}
+let AUTO_CACHE = {clave: '', mapa: {}};
+function autoEstados(semana){
+  const plan = planDe(semana);
+  if(!plan) return {};
+  const posts = postsInstagram(), hist = historiasInstagram();
+  const clave = semana + '|' + posts.length + '|' + hist.length + '|' + (plan.subido || '');
+  if(AUTO_CACHE.clave === clave) return AUTO_CACHE.mapa;
+  const porDia = (fechas) => { const m = {}; fechas.forEach(d => { const k = iso(d); m[k] = (m[k] || 0) + 1; }); return m; };
+  const postsDia = porDia(posts.map(p => p.date)), histDia = porDia(hist);
+  const mapa = {};
+  plan.dias.forEach(d => {
+    let np = postsDia[d.fecha] || 0, nh = histDia[d.fecha] || 0;
+    d.items.forEach(it => {   // ya vienen ordenados por hora
+      if(it.tipo === 'post' && np > 0){ mapa[it.id] = 'publicado'; np--; }
+      else if(it.tipo === 'historia' && nh > 0){ mapa[it.id] = 'publicado'; nh--; }
+    });
+  });
+  AUTO_CACHE = {clave, mapa};
+  return mapa;
+}
 function marcarItem(semana, itemId, estado){
   if(ESTADOS.indexOf(estado) < 0) estado = 'pendiente';
   encolar('contenido-marcas-' + semana, {items: {[itemId]: {e: estado, t: Date.now()}}});
@@ -509,8 +540,7 @@ function avanceSemana(semana){
   const lun = deIso(semana), dom = sumarDias(lun, 6), fin = sumarDias(lun, 7);
   const plan = planDe(semana);
   const items = plan ? [].concat.apply([], plan.dias.map(d => d.items)) : [];
-  const marcas = marcasDe(semana).items || {};
-  const publicado = it => marcas[it.id] && marcas[it.id].e === 'publicado';
+  const publicado = it => estadoItem(semana, it.id) === 'publicado';
   const enSemana = d => d >= lun && d < fin;
 
   const postsIg = postsInstagram().filter(p => enSemana(p.date));
@@ -541,6 +571,54 @@ function avanceSemana(semana){
   };
 }
 
+// ---------- Recordatorios (notas con fecha y hora) ----------
+// Ej.: "Bajar los anuncios a S/ 15" para mañana 9:00. Se guardan en el
+// almacén (id "contenido-notas") y se sincronizan como las marcas. Los puede
+// crear Alberto en el panel o el chat de creativos con su script.
+// Formato: {items: {id: {texto, cuando:'AAAA-MM-DDTHH:MM' (hora Lima) o 'AAAA-MM-DD', hecho, borrado, t, autor}}}
+function notasRaw(){ return (METAS['contenido-notas'] || {}).items || {}; }
+function cuandoDate(c){
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/.exec(String(c || ''));
+  return m ? new Date(+m[1], +m[2]-1, +m[3], m[4] ? +m[4] : 9, m[5] ? +m[5] : 0) : null;
+}
+function notas(){
+  const ahora = new Date(), hoy = hoy0();
+  return Object.keys(notasRaw()).map(id => Object.assign({id}, notasRaw()[id]))
+    .filter(n => !n.borrado && n.texto)
+    .map(n => {
+      const d = cuandoDate(n.cuando);
+      const conHora = /T\d{2}:\d{2}/.test(String(n.cuando || ''));
+      return Object.assign(n, {
+        fecha: d, conHora,
+        vencida: !n.hecho && !!d && (conHora ? d <= ahora : dayKey(d) < dayKey(hoy)),
+        esHoy: !!d && dayKey(d) === dayKey(hoy),
+        calendario: linkCalendario(n.texto, d, conHora),
+      });
+    })
+    .sort((a, b) => (a.hecho - b.hecho) || ((a.fecha ? +a.fecha : 9e15) - (b.fecha ? +b.fecha : 9e15)));
+}
+function agregarNota(texto, cuando){
+  const id = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  encolar('contenido-notas', {items: {[id]: {texto: String(texto).slice(0, 300), cuando: cuando || '', hecho: false, t: Date.now(), autor: 'panel'}}});
+  return id;
+}
+function editarNota(id, cambios){
+  const n = notasRaw()[id]; if(!n) return;
+  encolar('contenido-notas', {items: {[id]: Object.assign({}, n, cambios, {t: Date.now()})}});
+}
+function marcarNota(id, hecho){ editarNota(id, {hecho: !!hecho}); }
+function borrarNota(id){ editarNota(id, {borrado: true}); }
+// Enlace "Agregar a Google Calendar": así la alarma suena en el celular aunque
+// el panel esté cerrado (una página web sola no puede despertar el teléfono).
+function linkCalendario(texto, d, conHora){
+  if(!d) return '';
+  const p2 = n => String(n).padStart(2, '0');
+  const f = x => x.getFullYear() + p2(x.getMonth()+1) + p2(x.getDate()) + (conHora ? 'T' + p2(x.getHours()) + p2(x.getMinutes()) + '00' : '');
+  const fin = conHora ? new Date(d.getTime() + 15 * 60000) : sumarDias(d, 1);
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(texto) +
+    '&dates=' + f(d) + '/' + f(fin) + '&ctz=America/Lima&details=' + encodeURIComponent('Recordatorio del panel de Contenido de Timeless');
+}
+
 // ---------- Alertas de arriba ----------
 function alertas(){
   const ps = productos();
@@ -553,6 +631,8 @@ function alertas(){
     estancados: estancados.map(p => ({producto: p.producto, stock: p.stock, v14: p.v14})),
     fechas: fechasClave(14),
     comentarios: comentariosSinResponder(),
+    // Recordatorios vencidos o de hoy, sin hacer.
+    notas: notas().filter(n => !n.hecho && (n.vencida || n.esHoy)),
   };
 }
 
@@ -614,6 +694,7 @@ window.TLC = {
   avanceSemana, setMetasSemanales, ajustes, tiktokManual, setTiktokManual,
   // varios
   marcarUltimoPost, setCheckFecha, comentariosSinResponder, postsInstagram,
+  estadoItemInfo, notas, agregarNota, editarNota, marcarNota, borrarNota,
   _debug: () => ({METAS, DATOS, LIB}),
 };
 })();

@@ -57,6 +57,9 @@ const ICONOS = {
   dormido:'<path d="M20 14.5A8 8 0 1 1 9.5 4 6.5 6.5 0 0 0 20 14.5z"/>',
   chat:'<path d="M4 5h16v11H9l-5 4z"/>',
   flash:'<path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/>',
+  campana:'<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+  basura:'<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/>',
+  ig:'<rect x="4" y="4" width="16" height="16" rx="5"/><circle cx="12" cy="12" r="3.6"/><path d="M16.8 7.2h.01"/>',
   idea:'<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
 };
 function ic(n){ return '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">' + (ICONOS[n] || '') + '</svg>'; }
@@ -73,7 +76,7 @@ function sinProductoTxt(s){ return esc(s); }
 const S = {
   tab: 'hoy', semana: T.semanaId(), carga: 'cargando', ultimaOk: null, guardado: 'ninguno',
   abiertos: {}, fEstado: '', fCat: '', fechaAbierta: '', fechaVal: {}, verMasComent: false,
-  fase: null, avisoErr: null,
+  fase: null, avisoErr: null, notaForm: false, notaHechas: false, notaVal: {txt:'', fec:'', hor:''},
 };
 try{ const t = localStorage.getItem('timeless_contenido_tab'); if(['hoy','semana','productos','metas'].indexOf(t) >= 0) S.tab = t; }catch(e){}
 function esDesktop(){ return window.matchMedia('(min-width:1024px)').matches; }
@@ -106,6 +109,72 @@ function pintaAvisos(){
   $('demo').innerHTML = T.esDemo ? '<div class="demo-ribbon">MODO DEMO — no se guarda nada</div>' : '';
 }
 
+/* ---------- Recordatorios ---------- */
+function cuandoTxt(n){
+  const d = n.fecha; if(!d) return 'sin fecha';
+  const h0 = new Date();
+  const dif = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(h0.getFullYear(), h0.getMonth(), h0.getDate())) / 864e5);
+  const hora = n.conHora ? ' ' + hhmm(d) : '';
+  if(dif === 0) return 'hoy' + hora;
+  if(dif === 1) return 'mañana' + hora;
+  if(dif === -1) return 'ayer' + hora;
+  const dia = d.toLocaleDateString('es-PE', {weekday:'short'}).replace('.', '');
+  const mes = d.toLocaleDateString('es-PE', {month:'short'}).replace('.', '');
+  return dia + ' ' + d.getDate() + ' ' + mes + hora;
+}
+function manana(){ return T.iso(T.sumarDias(new Date(), 1)); }
+function htmlNota(n){
+  return '<div class="nota' + (n.hecho ? ' hecha' : '') + (n.vencida ? ' vencida' : '') + '"><div class="nota-fila">' +
+    '<button type="button" class="check nota-chk" role="checkbox" aria-checked="' + (n.hecho ? 'true' : 'false') + '" aria-label="Marcar hecho: ' + esc(n.texto) + '" data-act="nota-hecha" data-id="' + esc(n.id) + '"><span class="cbox">' + ic('check') + '</span></button>' +
+    '<div class="nota-cuerpo"><div class="nota-txt">' + esc(n.texto) + '</div><div class="nota-cuando">' + esc(cuandoTxt(n)) + (n.vencida ? ' · vencido' : '') + '</div>' +
+    (n.fecha && !n.hecho ? '<a class="nota-cal" href="' + esc(n.calendario) + '" target="_blank" rel="noopener">' + ic('cal') + 'Alarma en Google Calendar</a>' : '') + '</div>' +
+    '<button type="button" class="icon-btn nota-del" data-act="nota-borrar" data-id="' + esc(n.id) + '" title="Borrar" aria-label="Borrar recordatorio">' + ic('basura') + '</button></div></div>';
+}
+function htmlNotas(){
+  const l = T.notas(), pend = l.filter(n => !n.hecho), hechas = l.filter(n => n.hecho);
+  let h = '<div class="sec-head"><div><h2 class="section-label">Recordatorios</h2></div>' +
+    '<button class="btn sm" data-act="nota-form">' + (S.notaForm ? 'Cerrar' : '+ Recordatorio') + '</button></div>';
+  if(S.notaForm){
+    h += '<form class="nota-form"><input type="text" id="nTxt" maxlength="300" placeholder="Ej.: bajar los anuncios a S/ 15" aria-label="Texto del recordatorio" value="' + esc(S.notaVal.txt) + '">' +
+      '<div class="nota-form-fila"><label>Fecha<input type="date" id="nFec" value="' + esc(S.notaVal.fec || manana()) + '"></label>' +
+      '<label>Hora (opcional)<input type="time" id="nHor" value="' + esc(S.notaVal.hor) + '"></label>' +
+      '<button type="submit" class="btn primary sm">Guardar</button></div></form>';
+  }
+  if(!pend.length && !hechas.length && !S.notaForm) h += '<div class="vacio"><b>Sin recordatorios</b><p>Anota cosas como "mañana bajar los anuncios a S/ 15".</p></div>';
+  h += pend.map(htmlNota).join('');
+  if(pend.some(n => n.fecha)) h += '<div class="ayuda">La alarma en Google Calendar hace sonar el celular aunque el panel esté cerrado.</div>';
+  if(hechas.length){
+    h += '<button class="btn-link" data-act="nota-hechas" aria-expanded="' + S.notaHechas + '">' + (S.notaHechas ? 'Ocultar hechas' : 'Ver hechas (' + hechas.length + ')') + '</button>';
+    if(S.notaHechas) h += hechas.map(htmlNota).join('');
+  }
+  if(typeof Notification !== 'undefined' && Notification.permission === 'default') h += '<button class="btn-link" data-act="avisos-permiso">Activar avisos</button>';
+  return h;
+}
+const AVISADAS_K = 'timeless_contenido_avisadas';
+function avisadas(){ try{ return JSON.parse(localStorage.getItem(AVISADAS_K) || '[]'); }catch(e){ return []; } }
+function guardaAvisada(id){ try{ const l = avisadas(); l.push(id); localStorage.setItem(AVISADAS_K, JSON.stringify(l.slice(-200))); }catch(e){} }
+function toast(n){
+  let box = $('toasts');
+  if(!box){ box = document.createElement('div'); box.id = 'toasts'; box.setAttribute('role', 'alert'); document.body.appendChild(box); }
+  const t = document.createElement('div'); t.className = 'toast'; t.dataset.id = n.id;
+  t.innerHTML = '<span class="al-ico">' + ic('campana') + '</span><div class="toast-b"><b>Recordatorio</b><span>' + esc(n.texto) + '</span></div>' +
+    '<button class="btn sm" data-act="toast-hecho" data-id="' + esc(n.id) + '">Hecho</button><button class="icon-btn" data-act="toast-cerrar" aria-label="Cerrar aviso">×</button>';
+  box.appendChild(t);
+}
+function revisaAvisos(){
+  try{
+    const ya = avisadas(), ahora = Date.now();
+    T.notas().forEach(n => {
+      if(n.hecho || !n.conHora || !n.fecha || +n.fecha > ahora || ahora - +n.fecha > 6 * 36e5 || ya.indexOf(n.id) >= 0) return;
+      guardaAvisada(n.id); toast(n);
+      try{ if(typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification('Recordatorio', {body: n.texto, icon: 'icon-192.png', tag: n.id}); }catch(e){}
+    });
+  }catch(e){ console.error(e); }
+}
+function pidePermiso(){
+  try{ if(typeof Notification !== 'undefined') Notification.requestPermission().then(() => render()); }catch(e){}
+}
+
 /* ---------- Alertas ---------- */
 function grupoAl(clase, icono, titulo, n, cuerpo){
   return '<div class="al ' + clase + '"><div class="al-head"><span class="al-ico">' + ic(icono) + '</span><span class="al-t">' + titulo + '</span>' +
@@ -113,6 +182,10 @@ function grupoAl(clase, icono, titulo, n, cuerpo){
 }
 function htmlAlertas(){
   const a = T.alertas(); let g = '';
+  if(a.notas && a.notas.length){
+    g += grupoAl('t-notas', 'campana', 'Recordatorios', a.notas.length, '<ul>' + a.notas.map(n =>
+      '<li><span class="n">' + esc(n.texto) + '</span><span class="d' + (n.vencida ? ' warn' : '') + '">' + esc(cuandoTxt(n)) + (n.vencida ? ' · vencido' : '') + '</span></li>').join('') + '</ul>');
+  }
   if(a.llegan.length){
     g += grupoAl('t-llegan', 'camion', 'Llegan esta semana: anúncialos', a.llegan.length, '<ul>' + a.llegan.map(p => {
       const d = p.atrasado
@@ -171,15 +244,15 @@ function etiquetaSemana(id){
   return tag + (l.getMonth() === d.getMonth() ? l.getDate() + ' al ' + T.fechaCorta(d) : T.fechaCorta(l) + ' al ' + T.fechaCorta(d));
 }
 function htmlItem(sem, it){
-  const e = T.estadoItem(sem, it.id);
+  const info = T.estadoItemInfo(sem, it.id), e = info.e, auto = !!info.auto;
   const idx = T.ESTADOS.indexOf(e);
   const dots = T.ESTADOS.map((_, i) => '<i class="' + (i <= idx && idx > 0 ? 'on' : '') + '"></i>').join('');
   const extra = (it.tipo === 'post' && it.tiktok) ? '<span class="tag extra">+ TikTok</span>' : '';
   return '<div class="it st-' + e + '"><div class="it-time mono">' + esc(it.hora) + (it.horaFin ? '<small>' + esc(it.horaFin) + '</small>' : '') + '</div>' +
     '<div class="it-body"><div class="it-tags"><span class="tag ' + esc(it.tipo) + '">' + esc(TIPO_ETQ[it.tipo] || it.tipo) + '</span>' + extra +
     (it.producto ? '<span class="chip pchip">' + esc(it.producto) + '</span>' : '') + '</div><div class="it-text">' + esc(it.texto) + '</div></div>' +
-    '<button type="button" class="pill ' + e + '" data-act="estado" data-sem="' + esc(sem) + '" data-id="' + esc(it.id) + '" aria-label="' + esc(EST_ETQ[e]) + ': toca para cambiar a ' + esc(EST_ETQ[T.siguienteEstado(e)]) + '">' +
-    '<span class="dots" aria-hidden="true">' + dots + '</span>' + (e === 'publicado' ? ic('check') : '') + esc(EST_ETQ[e]) + '</button></div>';
+    '<button type="button" class="pill ' + e + (auto ? ' auto' : '') + '"' + (auto ? ' title="Marcado solo según Instagram"' : '') + ' data-act="estado" data-sem="' + esc(sem) + '" data-id="' + esc(it.id) + '" aria-label="' + esc(EST_ETQ[e]) + (auto ? ' (marcado solo según Instagram)' : '') + ': toca para cambiar a ' + esc(EST_ETQ[T.siguienteEstado(e)]) + '">' +
+    '<span class="dots" aria-hidden="true">' + dots + '</span>' + (e === 'publicado' ? ic('check') : '') + esc(EST_ETQ[e]) + (auto ? '<span class="auto-tag">' + ic('ig') + 'auto</span>' : '') + '</button></div>';
 }
 function diasDeSemana(sem, plan){
   const lun = T.deIso(sem), hoyIso = T.iso(new Date());
@@ -214,9 +287,10 @@ function htmlPlan(){
     '<button class="icon-btn" data-act="semana" data-d="1" aria-label="Semana siguiente"' + (i >= lista.length - 1 ? ' disabled style="opacity:.35"' : '') + '>' + ic('der') + '</button></div>' +
     '<button class="btn sm" data-act="plan-abrir">Cargar plan</button></div>';
   if(!plan){
-    return h + '<div class="vacio"><b>Aún no hay plan para esta semana</b><p>El plan llega solo cada noche desde el archivo que deja el chat "Marketing y creativos". También puedes pegarlo tú a mano.</p>' +
+    return h + '<div class="vacio"><b>Aún no hay plan para esta semana</b><p>El plan llega solo cada noche desde el archivo que deja el chat "Marketing y creativos". También puedes pegarlo tú a mano.</p><p>Los posts e historias se marcan solos cuando Instagram ya los muestra; también puedes marcarlos tú.</p>' +
       '<button class="btn primary" data-act="plan-abrir">Cargar plan</button></div>';
   }
+  h += '<div class="ayuda">Los posts e historias se marcan solos cuando Instagram ya los muestra; también puedes marcarlos tú.</div>';
   const origen = plan.origen === 'pegado' ? 'Pegado a mano' : 'Llegó solo del archivo del chat';
   h += '<div class="plan-meta">' + origen + (plan.subido ? ' · ' + esc(horaLocal(plan.subido)) : '') + '</div>';
   if(plan.errores.length) h += '<div class="aviso-meta">' + plural(plan.errores.length, 'línea del plan no se entendió', 'líneas del plan no se entendieron') + '. Abre "Cargar plan" para verlas.</div>';
@@ -322,6 +396,7 @@ function pintaTabs(){
     const d = plan && plan.dias.find(x => x.fecha === hoy);
     if(d) pend = d.items.filter(it => T.estadoItem(sem, it.id) !== 'publicado').length;
   }catch(e){}
+  try{ pend += T.alertas().notas.length; }catch(e){}
   $('tabbar').innerHTML = tabs.map(t => '<button role="tab" aria-selected="' + (S.tab === t[0]) + '" data-act="tab" data-t="' + t[0] + '">' + ic(t[2]) +
     (t[0] === 'hoy' && pend ? '<span class="nbadge mono">' + pend + '</span>' : '') + t[1] + '</button>').join('');
   document.body.setAttribute('data-tab', S.tab);
@@ -331,13 +406,14 @@ function pintaTabs(){
 function render(){
   if(S.carga === 'cargando' && !T.hayDatos()){
     $('sec-alertas').innerHTML = ''; $('sec-plan').innerHTML = '<div class="vacio"><b>Cargando…</b></div>';
-    $('sec-hoy').innerHTML = ''; $('sec-metas').innerHTML = ''; $('sec-prod').innerHTML = '';
+    $('sec-hoy').innerHTML = ''; $('sec-metas').innerHTML = ''; $('sec-prod').innerHTML = ''; $('sec-notas').innerHTML = '';
     pintaTabs(); pintaEstado(); pintaAvisos(); return;
   }
   try{
     $('sec-alertas').innerHTML = htmlAlertas();
     $('sec-plan').innerHTML = htmlPlan();
     $('sec-hoy').innerHTML = htmlHoy();
+    $('sec-notas').innerHTML = htmlNotas();
     $('sec-metas').innerHTML = htmlMetas();
     $('sec-prod').innerHTML = htmlProductos();
   }catch(e){ console.error(e); }
@@ -410,6 +486,13 @@ document.addEventListener('click', async ev => {
       const n = id => Math.max(0, parseInt($(id).value, 10) || 0);
       T.setMetasSemanales({posts:n('mp'), historias:n('mh'), tiktok:n('mt')}); cerrarOv(); render(); break;
     }
+    case 'nota-form': S.notaForm = !S.notaForm; render(); break;
+    case 'nota-hechas': S.notaHechas = !S.notaHechas; render(); break;
+    case 'nota-hecha': T.marcarNota(b.dataset.id, b.getAttribute('aria-checked') !== 'true'); render(); break;
+    case 'nota-borrar': if(confirm('¿Borrar este recordatorio?')){ T.borrarNota(b.dataset.id); render(); } break;
+    case 'avisos-permiso': pidePermiso(); break;
+    case 'toast-hecho': T.marcarNota(b.dataset.id, true); b.closest('.toast').remove(); render(); break;
+    case 'toast-cerrar': b.closest('.toast').remove(); break;
     case 'cerrar': cerrarOv(); break;
     case 'clave': { const v = prompt('Escribe tu clave del dashboard'); if(v && v.trim()){ T.guardarClave(v); location.reload(); } break; }
   }
@@ -417,6 +500,20 @@ document.addEventListener('click', async ev => {
 document.addEventListener('input', ev => {
   if(ev.target.id === 'planTxt') previewPlan();
   if(ev.target.matches && ev.target.matches('input[type=date][data-k]')) S.fechaVal[ev.target.dataset.k] = ev.target.value;
+});
+document.addEventListener('input', ev => {
+  const id = ev.target.id;
+  if(id === 'nTxt') S.notaVal.txt = ev.target.value;
+  if(id === 'nFec') S.notaVal.fec = ev.target.value;
+  if(id === 'nHor') S.notaVal.hor = ev.target.value;
+});
+document.addEventListener('submit', ev => {
+  if(!ev.target.matches('.nota-form')) return;
+  ev.preventDefault();
+  const txt = ($('nTxt').value || '').trim(), fec = $('nFec').value, hor = $('nHor').value;
+  if(!txt){ $('nTxt').focus(); return; }
+  T.agregarNota(txt, fec ? (hor ? fec + 'T' + hor : fec) : '');
+  S.notaVal = {txt:'', fec:'', hor:''}; S.notaForm = false; render(); revisaAvisos();
 });
 document.addEventListener('keydown', ev => { if(ev.key === 'Escape' && !$('ov').hidden) cerrarOv(); });
 
@@ -448,7 +545,7 @@ async function refrescarSuave(){
   if(document.visibilityState !== 'visible' || !$('ov').hidden) return;
   const ae = document.activeElement;
   if(await T.refrescar()){
-    if(ae && ae.tagName === 'INPUT' && ae.closest('#sec-prod')) return;
+    if(ae && ae.tagName === 'INPUT' && ae.closest('#sec-prod, #sec-notas')) return;
     S.ultimaOk = new Date(); render();
   }
 }
@@ -459,4 +556,6 @@ window.matchMedia('(min-width:1024px)').addEventListener('change', render);
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(() => {}); }
 render();
 iniciar();
+setInterval(revisaAvisos, 30000);
+setTimeout(revisaAvisos, 1500);
 })();
